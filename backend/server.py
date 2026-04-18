@@ -5,7 +5,9 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import io
 import uuid
+import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
@@ -13,10 +15,17 @@ from typing import List, Optional, Literal
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
+
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 # ---------- DB + App ----------
 mongo_url = os.environ["MONGO_URL"]
@@ -100,6 +109,24 @@ async def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+# Role-based access control
+ROLE_RANK = {"viewer": 0, "accountant": 1, "admin": 2}
+
+
+def require_role(min_role: str):
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        current = ROLE_RANK.get(user.get("role", "viewer"), 0)
+        required = ROLE_RANK.get(min_role, 2)
+        if current < required:
+            raise HTTPException(status_code=403, detail=f"Requires {min_role} role")
+        return user
+    return _dep
+
+
+require_accountant = require_role("accountant")
+require_admin = require_role("admin")
 
 
 # ---------- Models ----------
@@ -253,7 +280,7 @@ async def register(payload: UserCreate, response: Response):
         "name": payload.name,
         "email": email,
         "password_hash": hash_password(payload.password),
-        "role": "user",
+        "role": "accountant",
         "created_at": iso(now_utc()),
     }
     await db.users.insert_one(user)
@@ -804,8 +831,278 @@ async def root():
     return {"app": "Ledgerly", "status": "ok"}
 
 
+# ---------- Team Management (admin only) ----------
+class TeamMemberCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str = Field(min_length=6)
+    role: Literal["admin", "accountant", "viewer"] = "accountant"
+
+
+class TeamRoleUpdate(BaseModel):
+    role: Literal["admin", "accountant", "viewer"]
+
+
+@api.get("/team")
+async def list_team(_admin: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", 1).to_list(1000)
+    return users
+
+
+@api.post("/team")
+async def create_team_member(payload: TeamMemberCreate, _admin: dict = Depends(require_admin)):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email already in use")
+    user = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name,
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "role": payload.role,
+        "created_at": iso(now_utc()),
+    }
+    await db.users.insert_one(user)
+    user.pop("password_hash", None)
+    user.pop("_id", None)
+    return user
+
+
+@api.put("/team/{user_id}/role")
+async def update_team_role(user_id: str, payload: TeamRoleUpdate, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User not found")
+    # Prevent demoting the last admin
+    if target.get("role") == "admin" and payload.role != "admin":
+        admins = await db.users.count_documents({"role": "admin"})
+        if admins <= 1:
+            raise HTTPException(400, "Cannot demote the last admin")
+    await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role}})
+    return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+
+
+@api.delete("/team/{user_id}")
+async def delete_team_member(user_id: str, admin: dict = Depends(require_admin)):
+    if user_id == admin["id"]:
+        raise HTTPException(400, "You cannot delete your own account")
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target.get("role") == "admin":
+        admins = await db.users.count_documents({"role": "admin"})
+        if admins <= 1:
+            raise HTTPException(400, "Cannot delete the last admin")
+    await db.users.delete_one({"id": user_id})
+    return {"ok": True}
+
+
+# ---------- Invoice PDF + Share Link + Email Stub ----------
+def _build_invoice_pdf(inv: dict, customer: dict) -> bytes:
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, rightMargin=0.6 * inch, leftMargin=0.6 * inch, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
+    styles = getSampleStyleSheet()
+
+    # Custom styles — earthy palette from design tokens
+    brand = colors.HexColor("#1f4a3a")  # primary forest green
+    muted = colors.HexColor("#6b7a6b")
+
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], textColor=brand, fontSize=12, leading=14, spaceAfter=6)
+    small = ParagraphStyle("small", parent=styles["BodyText"], textColor=muted, fontSize=9, leading=12)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=10, leading=13)
+
+    story = []
+    # Header band: company + INVOICE title
+    header_tbl = Table(
+        [[
+            Paragraph(f"<b>{ORG_NAME}</b><br/><font color='#6b7a6b' size=9>Ledgerly · Accounting</font>", body),
+            Paragraph("<para align=right><font color='#1f4a3a' size=28><b>INVOICE</b></font></para>", body),
+        ]],
+        colWidths=[3.6 * inch, 3.6 * inch],
+    )
+    header_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 12)]))
+    story.append(header_tbl)
+
+    # Meta
+    meta_tbl = Table(
+        [
+            [Paragraph("<b>BILL TO</b>", small), Paragraph("<b>INVOICE #</b>", small), Paragraph("<b>ISSUE DATE</b>", small), Paragraph("<b>DUE DATE</b>", small)],
+            [
+                Paragraph(f"<b>{customer.get('name', '')}</b><br/>{customer.get('company') or ''}<br/>{customer.get('email') or ''}<br/>{(customer.get('address') or '').replace(chr(10), '<br/>')}", body),
+                Paragraph(f"<font size=13><b>{inv['invoice_number']}</b></font>", body),
+                Paragraph(inv.get("issue_date", ""), body),
+                Paragraph(inv.get("due_date", ""), body),
+            ],
+        ],
+        colWidths=[3.2 * inch, 1.4 * inch, 1.3 * inch, 1.3 * inch],
+    )
+    meta_tbl.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, muted),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(Spacer(1, 14))
+    story.append(meta_tbl)
+    story.append(Spacer(1, 18))
+
+    # Line items
+    rows = [[
+        Paragraph("<b>DESCRIPTION</b>", small),
+        Paragraph("<para align=right><b>QTY</b></para>", small),
+        Paragraph("<para align=right><b>RATE</b></para>", small),
+        Paragraph("<para align=right><b>TAX</b></para>", small),
+        Paragraph("<para align=right><b>AMOUNT</b></para>", small),
+    ]]
+    for li in inv.get("line_items", []):
+        sub = (li.get("quantity") or 0) * (li.get("rate") or 0)
+        tax = sub * (li.get("tax_rate") or 0) / 100.0
+        amt = sub + tax
+        rows.append([
+            Paragraph(li.get("description", ""), body),
+            Paragraph(f"<para align=right>{li.get('quantity', 0):g}</para>", body),
+            Paragraph(f"<para align=right>${li.get('rate', 0):,.2f}</para>", body),
+            Paragraph(f"<para align=right>{li.get('tax_rate', 0):g}%</para>", body),
+            Paragraph(f"<para align=right>${amt:,.2f}</para>", body),
+        ])
+    items_tbl = Table(rows, colWidths=[3.3 * inch, 0.7 * inch, 1.0 * inch, 0.8 * inch, 1.4 * inch])
+    items_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3efe8")),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, muted),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.5, muted),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(items_tbl)
+    story.append(Spacer(1, 12))
+
+    # Totals
+    totals_rows = [
+        ["", Paragraph("Subtotal", body), Paragraph(f"<para align=right>${inv.get('subtotal', 0):,.2f}</para>", body)],
+        ["", Paragraph("Tax", body), Paragraph(f"<para align=right>${inv.get('tax_total', 0):,.2f}</para>", body)],
+        ["", Paragraph("<b>Total</b>", h2), Paragraph(f"<para align=right><font color='#1f4a3a' size=14><b>${inv.get('total', 0):,.2f}</b></font></para>", body)],
+    ]
+    if inv.get("amount_paid", 0) > 0:
+        totals_rows.append(["", Paragraph("Paid", body), Paragraph(f"<para align=right>-${inv.get('amount_paid', 0):,.2f}</para>", body)])
+        totals_rows.append(["", Paragraph("<b>Balance Due</b>", body), Paragraph(f"<para align=right><font color='#d97757' size=12><b>${inv.get('balance_due', 0):,.2f}</b></font></para>", body)])
+    totals_tbl = Table(totals_rows, colWidths=[3.8 * inch, 2.0 * inch, 1.4 * inch])
+    totals_tbl.setStyle(TableStyle([
+        ("LINEABOVE", (1, 2), (-1, 2), 0.5, brand),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(totals_tbl)
+
+    if inv.get("notes"):
+        story.append(Spacer(1, 18))
+        story.append(Paragraph("<b>NOTES</b>", small))
+        story.append(Paragraph(inv["notes"], body))
+
+    if inv.get("terms"):
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("<b>TERMS</b>", small))
+        story.append(Paragraph(inv["terms"], body))
+
+    story.append(Spacer(1, 30))
+    story.append(Paragraph(f"<para align=center><font color='#6b7a6b' size=9>Thank you for your business · {ORG_NAME}</font></para>", body))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
+
+
+async def _load_invoice_and_customer(inv_id: str):
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    customer = await db.contacts.find_one({"id": inv["customer_id"]}, {"_id": 0}) or {"name": inv.get("customer_name", "")}
+    return inv, customer
+
+
+@api.get("/invoices/{inv_id}/pdf")
+async def invoice_pdf(inv_id: str, _user: dict = Depends(get_current_user)):
+    inv, customer = await _load_invoice_and_customer(inv_id)
+    pdf = _build_invoice_pdf(inv, customer)
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{inv["invoice_number"]}.pdf"'},
+    )
+
+
+@api.post("/invoices/{inv_id}/share")
+async def create_invoice_share_link(inv_id: str, _user: dict = Depends(get_current_user)):
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    token = inv.get("share_token")
+    if not token:
+        token = secrets.token_urlsafe(16)
+        await db.invoices.update_one({"id": inv_id}, {"$set": {"share_token": token}})
+    return {"share_token": token}
+
+
+@api.delete("/invoices/{inv_id}/share")
+async def revoke_invoice_share_link(inv_id: str, _user: dict = Depends(get_current_user)):
+    await db.invoices.update_one({"id": inv_id}, {"$unset": {"share_token": ""}})
+    return {"ok": True}
+
+
+@api.post("/invoices/{inv_id}/email")
+async def send_invoice_email(inv_id: str, _user: dict = Depends(get_current_user)):
+    # Email sending is intentionally not configured (user deferred Resend setup).
+    # Return a clear, actionable response so the frontend can show guidance.
+    inv = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    if not os.environ.get("RESEND_API_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="Email sending isn't configured yet. Add RESEND_API_KEY and SENDER_EMAIL to the backend .env to enable this feature.",
+        )
+    # If key present, future: send email here.
+    return {"ok": True, "message": "Email configured but sender not wired up yet."}
+
+
+# ---------- PUBLIC (no-auth) endpoints ----------
+public = APIRouter(prefix="/api/public")
+
+
+@public.get("/invoices/{share_token}")
+async def public_invoice(share_token: str):
+    inv = await db.invoices.find_one({"share_token": share_token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    customer = await db.contacts.find_one({"id": inv["customer_id"]}, {"_id": 0}) or {"name": inv.get("customer_name", "")}
+    return {
+        "organization": {"name": ORG_NAME, "currency": "USD"},
+        "invoice": inv,
+        "customer": {
+            "name": customer.get("name"),
+            "company": customer.get("company"),
+            "email": customer.get("email"),
+        },
+    }
+
+
+@public.get("/invoices/{share_token}/pdf")
+async def public_invoice_pdf(share_token: str):
+    inv = await db.invoices.find_one({"share_token": share_token}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    customer = await db.contacts.find_one({"id": inv["customer_id"]}, {"_id": 0}) or {"name": inv.get("customer_name", "")}
+    pdf = _build_invoice_pdf(inv, customer)
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{inv["invoice_number"]}.pdf"'},
+    )
+
+
 # Include router
 app.include_router(api)
+app.include_router(public)
 
 # CORS
 app.add_middleware(

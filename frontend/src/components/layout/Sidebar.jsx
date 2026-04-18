@@ -11,7 +11,9 @@ import {
   Bank,
   ChartLineUp,
   NotePencil,
+  UsersThree,
 } from "@phosphor-icons/react";
+import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: House, end: true, testid: "sidebar-nav-dashboard" },
@@ -27,7 +29,13 @@ const NAV = [
   { to: "/reports", label: "Reports", icon: ChartLineUp, testid: "sidebar-nav-reports" },
 ];
 
+const ADMIN_NAV = [
+  { to: "/team", label: "Team", icon: UsersThree, testid: "sidebar-nav-team" },
+];
+
 export default function Sidebar({ orgName }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   return (
     <aside
       className="w-[260px] shrink-0 border-r border-border bg-muted/30 h-screen sticky top-0 flex flex-col"
@@ -60,6 +68,23 @@ export default function Sidebar({ orgName }) {
             <span>{label}</span>
           </NavLink>
         ))}
+
+        {isAdmin && (
+          <>
+            <div className="pt-4 pb-2 px-3 text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Organization</div>
+            {ADMIN_NAV.map(({ to, label, icon: Icon, testid }) => (
+              <NavLink
+                key={to}
+                to={to}
+                data-testid={testid}
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+              >
+                <Icon size={18} weight="duotone" />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </>
+        )}
       </nav>
 
       <div className="px-5 py-4 border-t border-border text-xs text-muted-foreground">

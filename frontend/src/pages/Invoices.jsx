@@ -5,8 +5,9 @@ import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash, PaperPlaneTilt, CurrencyDollar } from "@phosphor-icons/react";
+import { Plus, Trash, PaperPlaneTilt, CurrencyDollar, DownloadSimple, LinkSimple, Envelope } from "@phosphor-icons/react";
 import { toast } from "sonner";
+import { API } from "@/lib/api";
 
 const EMPTY_IMG = "https://static.prod-images.emergentagent.com/jobs/65ceb719-6bb6-4b6e-ac14-27d56f86879c/images/dc5ad9658e7dcdc2c44624486da479824f2f6f1c4e202fbae5dc0d75dd9a201f.png";
 
@@ -36,6 +37,40 @@ export default function Invoices() {
     await api.delete(`/invoices/${id}`);
     toast.success("Invoice deleted");
     load();
+  };
+
+  const downloadPdf = async (inv) => {
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${API}/invoices/${inv.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { toast.error("Failed to download PDF"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${inv.invoice_number}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyShareLink = async (inv) => {
+    try {
+      const { data } = await api.post(`/invoices/${inv.id}/share`);
+      const url = `${window.location.origin}/share/invoice/${data.share_token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied", { description: url });
+    } catch (e) {
+      toast.error("Could not create share link");
+    }
+  };
+
+  const emailInvoice = async (inv) => {
+    try {
+      await api.post(`/invoices/${inv.id}/email`);
+      toast.success("Invoice emailed");
+    } catch (e) {
+      const msg = e?.response?.data?.detail || "Unable to send email";
+      toast.info("Email not configured", { description: msg });
+    }
   };
 
   if (!items) return <div className="text-muted-foreground">Loading...</div>;
@@ -88,6 +123,15 @@ export default function Invoices() {
                   <td className="num">{fmtMoney(inv.balance_due)}</td>
                   <td>
                     <div className="flex gap-1 justify-end">
+                      <Button size="sm" variant="ghost" onClick={() => downloadPdf(inv)} title="Download PDF" data-testid={`invoice-pdf-${inv.id}`}>
+                        <DownloadSimple size={14} />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => copyShareLink(inv)} title="Copy share link" data-testid={`invoice-share-${inv.id}`}>
+                        <LinkSimple size={14} />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => emailInvoice(inv)} title="Email to customer" data-testid={`invoice-email-${inv.id}`}>
+                        <Envelope size={14} />
+                      </Button>
                       {inv.status === "draft" && (
                         <Button size="sm" variant="ghost" onClick={() => markSent(inv.id)} title="Mark as sent" data-testid={`invoice-send-${inv.id}`}>
                           <PaperPlaneTilt size={14} />

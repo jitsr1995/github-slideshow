@@ -20,6 +20,8 @@ import Accounts from "@/pages/Accounts";
 import JournalEntries from "@/pages/JournalEntries";
 import Banking from "@/pages/Banking";
 import Reports from "@/pages/Reports";
+import Team from "@/pages/Team";
+import PublicInvoice from "@/pages/PublicInvoice";
 
 function Shell() {
   const { user, loading } = useAuth();
@@ -35,6 +37,7 @@ function Shell() {
 
   return (
     <Routes>
+      <Route path="/share/invoice/:token" element={<PublicInvoice />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/register" element={user ? <Navigate to="/" replace /> : <Register />} />
 
@@ -56,6 +59,7 @@ function Shell() {
         <Route path="/journal" element={<JournalEntries />} />
         <Route path="/banking" element={<Banking />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/team" element={<Team />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
