@@ -1,0 +1,138 @@
+{
+  "theme": "LIGHT",
+  "archetype": "1 (Organic & Earthy)",
+  "rationale": "For financial software (like Zoho Books/QuickBooks), trust, stability, and calm are essential. A 'fintech-bro dark mode' or 'SaaS template blue' feels either too aggressive or too generic. We are using Archetype 1: Organic & Earthy with a Deep Forest Green and Sage palette mixed with a Warm Terracotta accent. This creates a grounded, professional, tactile, and highly distinct environment that reduces cognitive load when viewing dense financial data.",
+  "colors": {
+    "css_variables": {
+      "--background": "40 40% 98%", 
+      "--foreground": "154 17% 8%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "154 17% 8%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "154 17% 8%",
+      "--primary": "158 35% 18%",
+      "--primary-foreground": "40 40% 98%",
+      "--secondary": "108 20% 92%",
+      "--secondary-foreground": "158 35% 18%",
+      "--muted": "40 20% 94%",
+      "--muted-foreground": "108 10% 46%",
+      "--accent": "10 63% 60%",
+      "--accent-foreground": "40 40% 98%",
+      "--destructive": "0 70% 50%",
+      "--destructive-foreground": "40 40% 98%",
+      "--border": "40 15% 88%",
+      "--input": "40 15% 88%",
+      "--ring": "158 35% 18%",
+      "--chart-1": "158 35% 18%",
+      "--chart-2": "108 10% 56%",
+      "--chart-3": "10 63% 60%",
+      "--chart-4": "40 40% 80%",
+      "--chart-5": "154 17% 8%",
+      "--radius": "0.375rem"
+    },
+    "status_colors": {
+      "draft": "bg-gray-100 text-gray-700 border-gray-200",
+      "sent": "bg-blue-50 text-blue-700 border-blue-200",
+      "paid": "bg-green-50 text-green-700 border-green-200",
+      "overdue": "bg-red-50 text-red-700 border-red-200"
+    }
+  },
+  "typography": {
+    "font_imports": [
+      "@import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap');",
+      "@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap');"
+    ],
+    "font_families": {
+      "heading": "Cabinet Grotesk, sans-serif",
+      "body": "IBM Plex Sans, sans-serif"
+    },
+    "classes": {
+      "h1": "font-heading text-4xl sm:text-5xl font-bold tracking-tight text-primary",
+      "h2": "font-heading text-2xl sm:text-3xl font-bold tracking-tight text-foreground",
+      "h3": "font-heading text-xl sm:text-2xl font-medium tracking-tight text-foreground",
+      "h4": "font-heading text-lg font-medium text-foreground",
+      "body": "font-body text-base text-foreground leading-relaxed",
+      "small": "font-body text-sm text-muted-foreground",
+      "label": "font-body text-xs font-medium tracking-[0.05em] uppercase text-muted-foreground"
+    }
+  },
+  "layout": {
+    "strategy": "Control Room Grid (Mode B)",
+    "description": "Information clarity, functional beauty. High density but with clear optical alignments.",
+    "sidebar": "Fixed left sidebar, width 260px, distinct background color (bg-muted/30) and 1px right border.",
+    "header": "Sticky top header with user profile, organization switcher, and global quick-create button. Border bottom 1px.",
+    "main_content": "Padding p-6 or p-8. Max-width constraints not required for dashboard, use full width with grid structure.",
+    "kpi_cards": "col-span-1. Flat solid background (bg-card), 1px border (border-border), no shadows, sharp or slightly rounded corners (rounded-md). Subtle lift on hover (-translate-y-0.5) with slight shadow.",
+    "tables": "Compact financial styling. Padding py-3 px-4 per cell. Right-align monetary amounts. Use hover:bg-muted/50 for rows."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-md px-4 py-2 transition-colors",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/80 font-medium rounded-md px-4 py-2 transition-colors",
+      "outline": "border border-input bg-background hover:bg-accent hover:text-accent-foreground font-medium rounded-md px-4 py-2 transition-colors"
+    },
+    "cards": {
+      "base": "bg-card border border-border rounded-md overflow-hidden",
+      "header": "px-6 py-4 border-b border-border/50 bg-card/50",
+      "content": "p-6"
+    },
+    "forms": {
+      "inputs": "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+      "labels": "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mb-2 block",
+      "grouping": "Space fields with gap-6. Group related fields in grid-cols-1 md:grid-cols-2"
+    },
+    "badges": {
+      "base": "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+    }
+  },
+  "media": {
+    "icons_library": "@phosphor-icons/react",
+    "images": {
+      "portraits": [
+        {
+          "url": "https://images.unsplash.com/photo-1758600433991-933fb663161f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBkaXZlcnNlJTIwdXNlciUyMHBvcnRyYWl0c3xlbnwwfHx8fDE3NzY1MTQ1NDd8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Young woman with curly hair and glasses, use for user profile avatars"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1758600588086-dc9d345fd01f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBkaXZlcnNlJTIwdXNlciUyMHBvcnRyYWl0c3xlbnwwfHx8fDE3NzY1MTQ1NDd8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Man in blue shirt, use for vendor/contact avatars"
+        }
+      ],
+      "backgrounds": [
+        {
+          "url": "https://static.prod-images.emergentagent.com/jobs/65ceb719-6bb6-4b6e-ac14-27d56f86879c/images/fb6eee4ae98891233b9e12c9918c1c1f0b9c82f53fb3e671844fc1b1e339aeff.png",
+          "description": "Abstract terracotta and sage geometric composition, use for login page split-screen background image"
+        }
+      ],
+      "empty_states": [
+        {
+          "url": "https://static.prod-images.emergentagent.com/jobs/65ceb719-6bb6-4b6e-ac14-27d56f86879c/images/dc5ad9658e7dcdc2c44624486da479824f2f6f1c4e202fbae5dc0d75dd9a201f.png",
+          "description": "3D stacked receipts and coins in sage/terracotta, use for empty state in Invoices/Bills list"
+        },
+        {
+          "url": "https://static.prod-images.emergentagent.com/jobs/65ceb719-6bb6-4b6e-ac14-27d56f86879c/images/ce1cc7b2fd252ee23ac90d7cf1d071dbbb8370ff99058e7c140606ee22de2e48.png",
+          "description": "3D wallet with card in warm beige/terracotta, use for empty state in Expenses/Banking list"
+        }
+      ]
+    }
+  },
+  "testing": {
+    "requirements": [
+      "All interactive and key informational elements MUST include a data-testid attribute.",
+      "Use kebab-case, role-based naming (e.g., data-testid='sidebar-nav-invoices', data-testid='invoice-create-submit')."
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Use Phosphor icons for a crisp, high-end professional look (@phosphor-icons/react).",
+    "Tailwind config must be updated with the provided CSS variables for colors, radius, and font-families.",
+    "Add 'Cabinet Grotesk' and 'IBM Plex Sans' to the index.html or import them in index.css as provided.",
+    "Dashboard should have a 260px fixed left sidebar. The main content area takes up the rest of the space.",
+    "Create Shadcn UI components (or modify existing ones) to match the 'flat, 1px border, no shadow' card aesthetic.",
+    "Build standard CRUD list views using tables for Invoices, Bills, Contacts, and Items.",
+    "Build Create/Edit forms using a grid layout to group fields logically.",
+    "Build the Chart of Accounts, Journal Entries, Banking, and Reports views.",
+    "When a list is empty, display the corresponding 3D empty state image with a clear CTA.",
+    "Use Recharts for the Dashboard charts. Ensure line/bar charts utilize the chart-1 through chart-5 colors.",
+    "Ensure the login page uses a split-screen layout with the provided abstract background image on one side."
+  ]
+}
