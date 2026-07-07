@@ -16,6 +16,7 @@ import {
   Activity, Users, MessageSquare, Star, TrendingUp, Send, Sparkles, PhoneCall,
   Clock, AlertCircle, CalendarCheck, IndianRupee, ThumbsUp, ThumbsDown, ArrowRight, CheckCircle2, Loader2,
   Brain, Zap, Flame, Trophy, RefreshCw,
+  Film, Copy, Megaphone, PartyPopper, MapPin,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -53,6 +54,18 @@ function StatCard({ icon: Icon, label, value, sub, accent = 'emerald' }) {
   );
 }
 
+function ContentBlock({ label, text, onCopy }) {
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        <Label className="text-sm text-slate-600">{label}</Label>
+        <Button size="sm" variant="ghost" onClick={() => onCopy(text)} className="h-7 px-2 text-xs"><Copy className="h-3 w-3 mr-1" /> Copy</Button>
+      </div>
+      <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{text}</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [dashboard, setDashboard] = useState(null);
   const [patients, setPatients] = useState([]);
@@ -66,6 +79,39 @@ export default function App() {
   const [coachInsights, setCoachInsights] = useState([]);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachLoaded, setCoachLoaded] = useState(false);
+
+  // AI Marketing
+  const [mkType, setMkType] = useState('reel_script');
+  const [mkTopic, setMkTopic] = useState('Why regular dental cleaning matters');
+  const [mkLang, setMkLang] = useState('English');
+  const [mkLoading, setMkLoading] = useState(false);
+  const [mkContent, setMkContent] = useState(null);
+
+  const runMarketing = async () => {
+    if (!mkTopic.trim()) { toast.error('Enter a topic'); return; }
+    setMkLoading(true);
+    setMkContent(null);
+    try {
+      const res = await fetch('/api/ai/marketing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content_type: mkType, topic: mkTopic, language: mkLang }),
+      });
+      const data = await res.json();
+      if (data.content) {
+        setMkContent(data);
+        toast.success('Content ready');
+      } else {
+        toast.error(data.error || 'Failed');
+      }
+    } catch (e) { toast.error(e.message); }
+    setMkLoading(false);
+  };
+
+  const copyText = (text) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied');
+  };
 
   const runCoach = async () => {
     setCoachLoading(true);
@@ -264,9 +310,10 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-3xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> AI Coach</TabsTrigger>
+            <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> Coach</TabsTrigger>
+            <TabsTrigger value="marketing" className="gap-1"><Megaphone className="h-3.5 w-3.5" /> Marketing</TabsTrigger>
             <TabsTrigger value="patients">Patients</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="reputation">Reputation</TabsTrigger>
@@ -402,6 +449,163 @@ export default function App() {
             )}
 
             <p className="text-xs text-slate-400 text-center italic">AI Coach never provides clinical or treatment advice — only operational, growth, and reputation guidance.</p>
+          </TabsContent>
+
+          {/* Marketing tab */}
+          <TabsContent value="marketing" className="mt-6 space-y-6">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-orange-500 via-pink-500 to-rose-500 p-6 text-white">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
+                    <Megaphone className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">AI Marketing Studio</h2>
+                    <p className="text-pink-100 text-sm mt-0.5 max-w-xl">Generate Reels scripts, festival posts, Google Business Profile updates and WhatsApp broadcasts in any local language — instantly.</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader><CardTitle>Create Content</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid md:grid-cols-4 gap-3">
+                  <div>
+                    <Label className="text-sm">Content type</Label>
+                    <Select value={mkType} onValueChange={setMkType}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="reel_script">📽️ Reel / Short Script</SelectItem>
+                        <SelectItem value="festival_post">🎉 Festival Post</SelectItem>
+                        <SelectItem value="gbp_post">📍 Google Business Post</SelectItem>
+                        <SelectItem value="whatsapp_promo">💬 WhatsApp Broadcast</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label className="text-sm">Topic</Label>
+                    <Input className="mt-1" value={mkTopic} onChange={(e) => setMkTopic(e.target.value)} placeholder="e.g. Why regular cleaning matters, Diwali greetings, New braces service…" />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Language</Label>
+                    <Select value={mkLang} onValueChange={setMkLang}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="English">English</SelectItem>
+                        <SelectItem value="Hindi">Hindi</SelectItem>
+                        <SelectItem value="Bengali">Bengali</SelectItem>
+                        <SelectItem value="Hinglish">Hinglish</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { t: 'reel_script', label: '📽️ Cavity prevention tips', topic: 'Simple daily habits to prevent cavities' },
+                    { t: 'festival_post', label: '🎉 Diwali greeting', topic: 'Diwali festive greetings' },
+                    { t: 'gbp_post', label: '📍 New service launch', topic: 'Announcing painless root canal treatment' },
+                    { t: 'whatsapp_promo', label: '💬 Monsoon check-up', topic: 'Monsoon oral health checkup awareness' },
+                  ].map((s) => (
+                    <Button key={s.label} size="sm" variant="outline" onClick={() => { setMkType(s.t); setMkTopic(s.topic); }}>
+                      {s.label}
+                    </Button>
+                  ))}
+                </div>
+
+                <Button onClick={runMarketing} disabled={mkLoading} className="bg-gradient-to-r from-orange-500 to-pink-500 w-full sm:w-auto">
+                  {mkLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                  {mkLoading ? 'Generating…' : 'Generate Content'}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {mkContent && (
+              <Card className="border-0 shadow-md ring-1 ring-pink-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        {mkContent.content_type === 'reel_script' && <><Film className="h-5 w-5 text-pink-600" /> Reel Script</>}
+                        {mkContent.content_type === 'festival_post' && <><PartyPopper className="h-5 w-5 text-pink-600" /> Festival Post</>}
+                        {mkContent.content_type === 'gbp_post' && <><MapPin className="h-5 w-5 text-pink-600" /> Google Business Post</>}
+                        {mkContent.content_type === 'whatsapp_promo' && <><MessageSquare className="h-5 w-5 text-pink-600" /> WhatsApp Broadcast</>}
+                      </CardTitle>
+                      <CardDescription>{mkContent.topic} · {mkContent.language}</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {mkContent.content_type === 'reel_script' && (
+                    <>
+                      <ContentBlock label="🎬 Hook (0–3s)" text={mkContent.content.hook} onCopy={copyText} />
+                      <ContentBlock label="📖 Body (3–15s)" text={mkContent.content.body} onCopy={copyText} />
+                      <ContentBlock label="👉 CTA (15–20s)" text={mkContent.content.cta} onCopy={copyText} />
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <Label className="text-sm text-slate-600">On-screen text overlays</Label>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {mkContent.content.on_screen_text?.map((t, i) => (
+                            <Badge key={i} variant="outline" className="bg-slate-50 py-1">{t}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <ContentBlock label="📝 Instagram Caption" text={mkContent.content.caption} onCopy={copyText} />
+                      <div>
+                        <Label className="text-sm text-slate-600">Hashtags</Label>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {mkContent.content.hashtags?.map((h, i) => (
+                            <button key={i} onClick={() => copyText(h)} className="text-xs text-pink-700 bg-pink-50 hover:bg-pink-100 px-2 py-1 rounded transition">{h}</button>
+                          ))}
+                          <Button size="sm" variant="ghost" onClick={() => copyText(mkContent.content.hashtags.join(' '))}><Copy className="h-3 w-3 mr-1" /> Copy all</Button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {mkContent.content_type === 'festival_post' && (
+                    <>
+                      <ContentBlock label="Headline" text={mkContent.content.headline} onCopy={copyText} />
+                      <ContentBlock label="Body" text={mkContent.content.body} onCopy={copyText} />
+                      <ContentBlock label="WhatsApp Status version" text={mkContent.content.whatsapp_status_version} onCopy={copyText} />
+                      <div>
+                        <Label className="text-sm text-slate-600">Hashtags</Label>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {mkContent.content.hashtags?.map((h, i) => (
+                            <button key={i} onClick={() => copyText(h)} className="text-xs text-pink-700 bg-pink-50 hover:bg-pink-100 px-2 py-1 rounded">{h}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {mkContent.content_type === 'gbp_post' && (
+                    <>
+                      <ContentBlock label="Title" text={mkContent.content.title} onCopy={copyText} />
+                      <ContentBlock label="Body" text={mkContent.content.body} onCopy={copyText} />
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm text-slate-600">CTA button:</Label>
+                        <Badge className="bg-blue-100 text-blue-700 border-blue-200" variant="outline">{mkContent.content.cta_button}</Badge>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-slate-600">Hashtags</Label>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {mkContent.content.hashtags?.map((h, i) => (
+                            <button key={i} onClick={() => copyText(h)} className="text-xs text-pink-700 bg-pink-50 hover:bg-pink-100 px-2 py-1 rounded">{h}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {mkContent.content_type === 'whatsapp_promo' && (
+                    <>
+                      <ContentBlock label="Broadcast message" text={mkContent.content.message} onCopy={copyText} />
+                      <ContentBlock label="Follow-up line (for replies)" text={mkContent.content.followup_line} onCopy={copyText} />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
           <TabsContent value="patients" className="mt-6">
             <Card className="border-0 shadow-sm">

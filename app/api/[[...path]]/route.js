@@ -220,6 +220,47 @@ async function handle(request, method, pathParts) {
     }
   }
 
+  // POST /api/ai/marketing - generate marketing content (reel/festival/gbp/whatsapp)
+  if (method === 'POST' && path === 'ai/marketing') {
+    const body = await request.json();
+    const { content_type, topic, language = 'English', tone = 'warm and professional' } = body;
+    const clinicCtx = `Clinic: ${clinic.name} (${clinic.specialty}) in ${clinic.city}. Doctor: ${clinic.doctor_name}.`;
+    const system = 'You are a top-tier social media copywriter for Indian medical clinics. You write scroll-stopping, culturally relevant, and compliant content. NEVER promise cures, medical outcomes, or make diagnostic claims. Focus on education, awareness, trust-building, and inviting patients to visit. Return ONLY strict JSON, no markdown fences.';
+
+    let user;
+    if (content_type === 'reel_script') {
+      user = `${clinicCtx}\nCreate a 20-second Instagram Reel / YouTube Short script in ${language} on topic: "${topic}". Tone: ${tone}.\nReturn strict JSON with keys: "hook" (first 3 seconds, punchy, curiosity), "body" (7-10 seconds, educational value, 2-3 short lines), "cta" (call to action, 3-5 seconds), "on_screen_text" (array of 4-6 short text overlays), "caption" (Instagram caption under 280 chars, warm), "hashtags" (array of 8 relevant tags including local city + specialty).`;
+    } else if (content_type === 'festival_post') {
+      user = `${clinicCtx}\nCreate a festival/occasion social media post in ${language} for: "${topic}". Warm, non-promotional-feeling but subtly reminds patients about the clinic.\nReturn strict JSON with keys: "headline" (max 8 words), "body" (2-3 short lines, greeting + subtle health tip + warm sign-off), "hashtags" (array of 8), "whatsapp_status_version" (60 chars max).`;
+    } else if (content_type === 'gbp_post') {
+      user = `${clinicCtx}\nCreate a Google Business Profile post in ${language} on topic: "${topic}". Educational, builds trust, ends with a soft CTA.\nReturn strict JSON with keys: "title" (max 60 chars), "body" (150-250 chars, 1-2 short paragraphs), "cta_button" (one of: "Book", "Learn more", "Call", "Visit"), "hashtags" (array of 5).`;
+    } else if (content_type === 'whatsapp_promo') {
+      user = `${clinicCtx}\nCreate a WhatsApp broadcast message in ${language} promoting a soft offer/awareness about: "${topic}". Non-spammy, warm, respectful. Under 280 chars.\nReturn strict JSON with keys: "message" (the full WhatsApp text), "followup_line" (a friendly sign-off if patient replies).`;
+    } else {
+      return NextResponse.json({ error: 'Unknown content_type' }, { status: 400 });
+    }
+
+    try {
+      const raw = await callLLM(system, user);
+      let cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const content = JSON.parse(cleaned);
+      // persist
+      await db.collection('marketing_content').insertOne({
+        id: uuidv4(), clinic_id: clinic.id, content_type, topic, language, tone, content, created_at: new Date(),
+      });
+      return NextResponse.json({ content_type, topic, language, content });
+    } catch (e) {
+      return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
+    }
+  }
+
+  // GET /api/marketing/history
+  if (method === 'GET' && path === 'marketing/history') {
+    const items = await db.collection('marketing_content').find({ clinic_id: clinic.id }).sort({ created_at: -1 }).limit(20).toArray();
+    return NextResponse.json(items.map((x) => ({ ...x, _id: undefined })));
+  }
+
   // POST /api/ai/coach - AI Business Coach insights based on current clinic data
   if (method === 'POST' && path === 'ai/coach') {
     const patients = await db.collection('patients').find({ clinic_id: clinic.id }).toArray();
