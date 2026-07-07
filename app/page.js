@@ -18,6 +18,7 @@ import {
   Brain, Zap, Flame, Trophy, RefreshCw,
   Film, Copy, Megaphone, PartyPopper, MapPin,
   Share2, Building2, Dumbbell, School, Stethoscope, UserPlus, HeartHandshake, Beaker,
+  BarChart3, Target, ArrowUpRight, ArrowDownRight, MapPinned,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -121,6 +122,13 @@ export default function App() {
   const [referrals, setReferrals] = useState([]);
   const [refFilter, setRefFilter] = useState('all');
 
+  // Google Ranking
+  const [ranking, setRanking] = useState(null);
+  const loadRanking = async () => {
+    const r = await fetch('/api/ranking').then((x) => x.json());
+    setRanking(r);
+  };
+
   const loadReferrals = async () => {
     const [b, r] = await Promise.all([
       fetch('/api/referrals/leaderboard').then((x) => x.json()),
@@ -130,6 +138,7 @@ export default function App() {
     setRefTotals(b.totals || {});
     setRefByType(b.by_type || {});
     setReferrals(r);
+    await loadRanking();
   };
 
   const updateReferral = async (id, status) => {
@@ -340,10 +349,11 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-7 max-w-4xl">
+          <TabsList className="grid w-full grid-cols-8 max-w-5xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> Coach</TabsTrigger>
             <TabsTrigger value="marketing" className="gap-1"><Megaphone className="h-3.5 w-3.5" /> Marketing</TabsTrigger>
+            <TabsTrigger value="ranking" className="gap-1"><Target className="h-3.5 w-3.5" /> Ranking</TabsTrigger>
             <TabsTrigger value="referrals" className="gap-1"><Share2 className="h-3.5 w-3.5" /> Referrals</TabsTrigger>
             <TabsTrigger value="patients">Patients</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
@@ -636,6 +646,145 @@ export default function App() {
                   )}
                 </CardContent>
               </Card>
+            )}
+          </TabsContent>
+
+          {/* Referrals tab */}
+          <TabsContent value="ranking" className="mt-6 space-y-6">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 p-6 text-white">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
+                    <Target className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">Google Ranking Engine</h2>
+                    <p className="text-cyan-100 text-sm mt-0.5 max-w-xl">See exactly where you stand vs nearby clinics on reviews, rating and posting cadence — and what to do this week to climb.</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {ranking && (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard icon={Star} label="Your Reviews" value={ranking.me.review_count} sub={`Market avg ${ranking.market.avg_review_count}`} accent="violet" />
+                  <StatCard icon={BarChart3} label="Your Rating" value={ranking.me.avg_rating || '—'} sub={`Market avg ${ranking.market.avg_rating}`} accent="emerald" />
+                  <StatCard icon={MapPinned} label="GBP Posts / Week" value={ranking.me.gbp_posts_per_week} sub={`Market avg ${ranking.market.avg_posts_per_week}`} accent="blue" />
+                  <StatCard icon={Trophy} label="Local Leader" value={ranking.leader?.name?.split(' ')[0] || '—'} sub={`${ranking.leader?.review_count || 0} reviews`} accent="amber" />
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-6">
+                  <Card className="border-0 shadow-sm lg:col-span-2">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-indigo-600" /> Review Gap vs Nearby Clinics</CardTitle>
+                      <CardDescription>Longer bar = more Google reviews. Closing this gap = higher local rank.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {(() => {
+                        const meRow = { name: `You · ${dashboard?.clinic?.name}`, review_count: ranking.me.review_count, rating: ranking.me.avg_rating, monthly_review_growth: 0, isMe: true };
+                        const rows = [meRow, ...ranking.competitors];
+                        const max = Math.max(...rows.map((r) => r.review_count), 1);
+                        return rows.map((r, i) => {
+                          const pct = Math.max(2, Math.round((r.review_count / max) * 100));
+                          return (
+                            <div key={i} className="space-y-1">
+                              <div className="flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`font-medium truncate ${r.isMe ? 'text-emerald-700' : 'text-slate-800'}`}>{r.name}</span>
+                                  {r.isMe && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs" variant="outline">You</Badge>}
+                                  {!r.isMe && <span className="text-xs text-slate-400">· {r.distance_km}km</span>}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs shrink-0">
+                                  <span className="text-amber-500">★ {r.rating || '—'}</span>
+                                  <b className="text-slate-700">{r.review_count}</b>
+                                  {!r.isMe && r.monthly_review_growth > 0 && (
+                                    <span className="text-emerald-600 flex items-center"><ArrowUpRight className="h-3 w-3" />+{r.monthly_review_growth}/mo</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${r.isMe ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : 'bg-gradient-to-r from-slate-400 to-slate-500'}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-amber-500" /> This Week's Playbook</CardTitle>
+                      <CardDescription>Rule-based actions to move up.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {ranking.recommendations.map((r, i) => {
+                        const sevColors = {
+                          critical: 'border-rose-200 bg-rose-50',
+                          opportunity: 'border-amber-200 bg-amber-50',
+                          reputation: 'border-violet-200 bg-violet-50',
+                          wins: 'border-emerald-200 bg-emerald-50',
+                        };
+                        return (
+                          <div key={i} className={`p-3 rounded-lg border ${sevColors[r.severity]}`}>
+                            <p className="font-semibold text-slate-900 text-sm">{r.title}</p>
+                            <p className="text-xs text-slate-600 mt-1 leading-relaxed">{r.detail}</p>
+                            <p className="text-xs text-slate-800 mt-2"><b>→</b> {r.action}</p>
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-blue-600" /> Google Business Profile Cadence</CardTitle>
+                      <CardDescription>Last 4 weeks · you posted {ranking.me.recent_posts} times.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1"><span className="text-slate-600">Your posts / week</span><b>{ranking.me.gbp_posts_per_week}</b></div>
+                        <Progress value={Math.min(100, (ranking.me.gbp_posts_per_week / 5) * 100)} className="h-2" />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1"><span className="text-slate-600">Market average / week</span><b>{ranking.market.avg_posts_per_week}</b></div>
+                        <Progress value={Math.min(100, (ranking.market.avg_posts_per_week / 5) * 100)} className="h-2" />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-1"><span className="text-slate-600">Leader ({ranking.leader?.name?.split(' ')[0]}) / week</span><b>{ranking.leader?.gbp_posts_per_week || 0}</b></div>
+                        <Progress value={Math.min(100, ((ranking.leader?.gbp_posts_per_week || 0) / 5) * 100)} className="h-2" />
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setTab('marketing')} className="w-full mt-2">
+                        <Sparkles className="h-4 w-4 mr-1" /> Draft next GBP post
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader>
+                      <CardTitle>Recent Posts</CardTitle>
+                      <CardDescription>Your GBP activity log.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {ranking.gbp_posts.slice(0, 6).map((p) => (
+                          <div key={p.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-900 truncate">{p.title}</p>
+                              <p className="text-xs text-slate-500">{new Date(p.posted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                            </div>
+                            <Badge variant="outline" className="capitalize text-xs">{p.type}</Badge>
+                          </div>
+                        ))}
+                        {!ranking.gbp_posts.length && <p className="text-center text-slate-500 text-sm py-4">No posts logged yet.</p>}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
             )}
           </TabsContent>
 

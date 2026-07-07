@@ -127,6 +127,28 @@ function seedPatients(clinicId) {
   }));
 }
 
+async function seedCompetitors(clinicId) {
+  const daysAgo = (d) => new Date(Date.now() - d * 86400000);
+  return [
+    { id: uuidv4(), clinic_id: clinicId, name: 'Perfect Smile Dental', distance_km: 0.8, rating: 4.6, review_count: 187, review_count_last_month: 172, latest_rating_last_month: 4.5, gbp_posts_per_week: 3, notes: 'Aggressive on Reels', created_at: daysAgo(30) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'City Dental Care', distance_km: 1.2, rating: 4.3, review_count: 92, review_count_last_month: 88, latest_rating_last_month: 4.3, gbp_posts_per_week: 1, notes: 'Cheaper pricing', created_at: daysAgo(30) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Bardhaman Dental Studio', distance_km: 1.7, rating: 4.8, review_count: 312, review_count_last_month: 289, latest_rating_last_month: 4.7, gbp_posts_per_week: 5, notes: 'Market leader, strong GBP', created_at: daysAgo(30) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Aashray Dental Clinic', distance_km: 2.4, rating: 4.1, review_count: 54, review_count_last_month: 50, latest_rating_last_month: 4.0, gbp_posts_per_week: 0, notes: 'Weak digital presence', created_at: daysAgo(30) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Dr. Roy Dental Care', distance_km: 3.1, rating: 4.4, review_count: 128, review_count_last_month: 121, latest_rating_last_month: 4.4, gbp_posts_per_week: 2, notes: 'Growing steadily', created_at: daysAgo(30) },
+  ];
+}
+
+function seedGbpPosts(clinicId) {
+  const daysAgo = (d) => new Date(Date.now() - d * 86400000);
+  const posts = [
+    { title: 'Diwali dental care tips', type: 'update', posted_at: daysAgo(28) },
+    { title: 'Monsoon oral hygiene', type: 'update', posted_at: daysAgo(20) },
+    { title: 'New painless RCT service', type: 'offer', posted_at: daysAgo(10) },
+    { title: 'Kids dental checkup week', type: 'event', posted_at: daysAgo(3) },
+  ];
+  return posts.map((p) => ({ id: uuidv4(), clinic_id: clinicId, ...p, created_at: p.posted_at }));
+}
+
 async function seedReferrers(clinicId) {
   const now = new Date();
   const daysAgo = (d) => new Date(now.getTime() - d * 86400000);
@@ -207,6 +229,13 @@ async function handle(request, method, pathParts) {
       const referrals = seedReferrals(clinic.id, referrers);
       await db.collection('referrals').insertMany(referrals);
     }
+    const compCount = await db.collection('competitors').countDocuments({ clinic_id: clinic.id });
+    if (compCount === 0) {
+      const comps = await seedCompetitors(clinic.id);
+      await db.collection('competitors').insertMany(comps);
+      const posts = seedGbpPosts(clinic.id);
+      await db.collection('gbp_posts').insertMany(posts);
+    }
     return NextResponse.json({ ok: true, clinic });
   }
 
@@ -280,6 +309,78 @@ async function handle(request, method, pathParts) {
     } catch (e) {
       return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
     }
+  }
+
+  // GET /api/ranking - competitor + gbp overview
+  if (method === 'GET' && path === 'ranking') {
+    const [competitors, gbpPosts, myReviews] = await Promise.all([
+      db.collection('competitors').find({ clinic_id: clinic.id }).sort({ review_count: -1 }).toArray(),
+      db.collection('gbp_posts').find({ clinic_id: clinic.id }).sort({ posted_at: -1 }).toArray(),
+      db.collection('reviews').find({ clinic_id: clinic.id }).toArray(),
+    ]);
+    const myReviewCount = myReviews.length;
+    const myAvgRating = myReviews.length ? myReviews.reduce((s, r) => s + r.rating, 0) / myReviews.length : 0;
+    const cleanCompetitors = competitors.map((c) => {
+      const gap = c.review_count - myReviewCount;
+      const monthlyGrowth = c.review_count - c.review_count_last_month;
+      return { ...c, _id: undefined, review_gap: gap, monthly_review_growth: monthlyGrowth };
+    });
+    // last 4 weeks of my GBP posts
+    const now = Date.now();
+    const last28 = gbpPosts.filter((p) => now - new Date(p.posted_at).getTime() <= 28 * 86400000);
+    const myPostsPerWeek = +(last28.length / 4).toFixed(1);
+    const marketAvgPostsPerWeek = competitors.length ? +(competitors.reduce((s, c) => s + c.gbp_posts_per_week, 0) / competitors.length).toFixed(1) : 0;
+    const marketAvgReviews = competitors.length ? Math.round(competitors.reduce((s, c) => s + c.review_count, 0) / competitors.length) : 0;
+    const marketAvgRating = competitors.length ? +(competitors.reduce((s, c) => s + c.rating, 0) / competitors.length).toFixed(2) : 0;
+    const leader = competitors[0] || null;
+    // rule-based recommendations
+    const recs = [];
+    if (leader && (leader.review_count - myReviewCount) > 10) {
+      const gapToLeader = leader.review_count - myReviewCount;
+      const monthlyTarget = Math.ceil(gapToLeader / 12);
+      recs.push({ title: `Close the review gap with ${leader.name}`, detail: `You are ${gapToLeader} reviews behind the leader. Ask ~${monthlyTarget} extra reviews/month to catch up in a year.`, action: 'Run a 2-week review campaign from Patients tab', severity: 'critical' });
+    }
+    if (myPostsPerWeek < marketAvgPostsPerWeek) {
+      recs.push({ title: `Your GBP posting is below market`, detail: `You post ${myPostsPerWeek}/week; competitors average ${marketAvgPostsPerWeek}/week. Google favors active listings.`, action: 'Generate 2 GBP posts this week from Marketing tab', severity: 'opportunity' });
+    }
+    if (myAvgRating && myAvgRating < marketAvgRating) {
+      recs.push({ title: `Rating below market average`, detail: `Your average is ${myAvgRating.toFixed(1)} vs market ${marketAvgRating}. Route negative feedback privately first.`, action: 'Enable the Reputation Engine private-first flow (already on)', severity: 'reputation' });
+    }
+    if (!recs.length) {
+      recs.push({ title: 'You are ahead of the pack', detail: 'Your rating and posting cadence are healthy. Keep momentum with consistent review requests.', action: 'Run a maintenance review campaign monthly', severity: 'wins' });
+    }
+    return NextResponse.json({
+      me: { review_count: myReviewCount, avg_rating: +myAvgRating.toFixed(2), gbp_posts_per_week: myPostsPerWeek, recent_posts: last28.length },
+      market: { avg_review_count: marketAvgReviews, avg_rating: marketAvgRating, avg_posts_per_week: marketAvgPostsPerWeek },
+      leader: leader ? { ...leader, _id: undefined } : null,
+      competitors: cleanCompetitors,
+      gbp_posts: gbpPosts.map((p) => ({ ...p, _id: undefined })),
+      recommendations: recs,
+    });
+  }
+
+  // POST /api/competitors
+  if (method === 'POST' && path === 'competitors') {
+    const body = await request.json();
+    const doc = {
+      id: uuidv4(), clinic_id: clinic.id,
+      name: body.name, distance_km: Number(body.distance_km) || 0,
+      rating: Number(body.rating) || 0, review_count: Number(body.review_count) || 0,
+      review_count_last_month: Number(body.review_count_last_month) || Number(body.review_count) || 0,
+      latest_rating_last_month: Number(body.latest_rating_last_month) || Number(body.rating) || 0,
+      gbp_posts_per_week: Number(body.gbp_posts_per_week) || 0,
+      notes: body.notes || '', created_at: new Date(),
+    };
+    await db.collection('competitors').insertOne(doc);
+    return NextResponse.json({ ...doc, _id: undefined });
+  }
+
+  // POST /api/gbp/posts - log a new GBP post
+  if (method === 'POST' && path === 'gbp/posts') {
+    const body = await request.json();
+    const doc = { id: uuidv4(), clinic_id: clinic.id, title: body.title, type: body.type || 'update', posted_at: new Date(), created_at: new Date() };
+    await db.collection('gbp_posts').insertOne(doc);
+    return NextResponse.json({ ...doc, _id: undefined });
   }
 
   // GET /api/referrers
