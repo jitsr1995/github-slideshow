@@ -127,6 +127,62 @@ function seedPatients(clinicId) {
   }));
 }
 
+async function seedReferrers(clinicId) {
+  const now = new Date();
+  const daysAgo = (d) => new Date(now.getTime() - d * 86400000);
+  const referrers = [
+    { id: uuidv4(), clinic_id: clinicId, name: 'Apollo Pharmacy - Curzon Gate', type: 'pharmacy', contact: '919830100001', notes: 'Near main square', created_at: daysAgo(180) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Dr. Suresh Verma (GP)', type: 'doctor', contact: '919830100002', notes: 'General physician, refers dental cases', created_at: daysAgo(300) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Bardhaman Diagnostic Lab', type: 'lab', contact: '919830100003', notes: 'X-ray tie-up', created_at: daysAgo(220) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Fit-Zone Gym', type: 'gym', contact: '919830100004', notes: 'Sports mouthguard leads', created_at: daysAgo(120) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Sunrise Public School', type: 'school', contact: '919830100005', notes: 'Annual dental camp', created_at: daysAgo(400) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Ananya Roy (patient)', type: 'patient', contact: '919830112233', notes: 'Loyal patient, brings family', created_at: daysAgo(200) },
+    { id: uuidv4(), clinic_id: clinicId, name: 'Meera Iyer (patient)', type: 'patient', contact: '919830556677', notes: 'Refers colleagues', created_at: daysAgo(90) },
+  ];
+  return referrers;
+}
+
+function seedReferrals(clinicId, referrers) {
+  const now = new Date();
+  const daysAgo = (d) => new Date(now.getTime() - d * 86400000);
+  const rBy = (name) => referrers.find((r) => r.name.startsWith(name))?.id;
+  const list = [
+    ['Apollo Pharmacy', 'Sunita Kar', '919835001001', 'cleaning', 'converted', 60],
+    ['Apollo Pharmacy', 'Manoj Ghosh', '919835001002', 'filling', 'converted', 45],
+    ['Apollo Pharmacy', 'Rita Basak', '919835001003', 'consultation', 'booked', 12],
+    ['Apollo Pharmacy', 'Amit Saha', '919835001004', 'consultation', 'lost', 100],
+    ['Apollo Pharmacy', 'Deepa Nag', '919835001005', 'cleaning', 'converted', 25],
+    ['Dr. Suresh', 'Rajiv Chowdhury', '919835002001', 'RCT', 'converted', 80],
+    ['Dr. Suresh', 'Kalpana Devi', '919835002002', 'extraction', 'converted', 30],
+    ['Dr. Suresh', 'Sourav Dutta', '919835002003', 'consultation', 'contacted', 5],
+    ['Dr. Suresh', 'Preeti Roy', '919835002004', 'RCT', 'converted', 150],
+    ['Bardhaman Diagnostic', 'Anil Kumar', '919835003001', 'consultation', 'converted', 40],
+    ['Bardhaman Diagnostic', 'Sonia Paul', '919835003002', 'cleaning', 'lost', 90],
+    ['Fit-Zone Gym', 'Karan Roy', '919835004001', 'mouthguard', 'converted', 20],
+    ['Fit-Zone Gym', 'Priyanka Sen', '919835004002', 'whitening', 'booked', 3],
+    ['Sunrise Public', 'Rohan Das (student parent)', '919835005001', 'cleaning', 'converted', 35],
+    ['Sunrise Public', 'Priya Sengupta', '919835005002', 'braces', 'converted', 40],
+    ['Sunrise Public', 'Amit Bose', '919835005003', 'cleaning', 'contacted', 8],
+    ['Ananya Roy', 'Aditi Roy (sister)', '919835006001', 'consultation', 'converted', 50],
+    ['Ananya Roy', 'Rakesh Roy (husband)', '919835006002', 'cleaning', 'converted', 70],
+    ['Meera Iyer', 'Kavya S (colleague)', '919835007001', 'consultation', 'converted', 30],
+    ['Meera Iyer', 'Ravi K (colleague)', '919835007002', 'filling', 'booked', 6],
+  ];
+  return list.map(([rName, pName, phone, service, status, dAgo]) => ({
+    id: uuidv4(),
+    clinic_id: clinicId,
+    referrer_id: rBy(rName),
+    referrer_name: referrers.find((r) => r.name.startsWith(rName))?.name || rName,
+    patient_name: pName,
+    patient_phone: phone,
+    service,
+    status,
+    notes: '',
+    created_at: daysAgo(dAgo),
+    converted_at: status === 'converted' ? daysAgo(Math.max(0, dAgo - 3)) : null,
+  }));
+}
+
 async function handle(request, method, pathParts) {
   const db = await getDb();
   const clinic = await ensureClinic(db);
@@ -143,9 +199,15 @@ async function handle(request, method, pathParts) {
     if (count === 0) {
       const patients = seedPatients(clinic.id);
       await db.collection('patients').insertMany(patients);
-      return NextResponse.json({ seeded: patients.length, clinic });
     }
-    return NextResponse.json({ seeded: 0, existing: count, clinic });
+    const refCount = await db.collection('referrers').countDocuments({ clinic_id: clinic.id });
+    if (refCount === 0) {
+      const referrers = await seedReferrers(clinic.id);
+      await db.collection('referrers').insertMany(referrers);
+      const referrals = seedReferrals(clinic.id, referrers);
+      await db.collection('referrals').insertMany(referrals);
+    }
+    return NextResponse.json({ ok: true, clinic });
   }
 
   // GET /api/clinic
@@ -218,6 +280,154 @@ async function handle(request, method, pathParts) {
     } catch (e) {
       return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
     }
+  }
+
+  // GET /api/referrers
+  if (method === 'GET' && path === 'referrers') {
+    const items = await db.collection('referrers').find({ clinic_id: clinic.id }).sort({ created_at: -1 }).toArray();
+    return NextResponse.json(items.map((x) => ({ ...x, _id: undefined })));
+  }
+
+  // POST /api/referrers
+  if (method === 'POST' && path === 'referrers') {
+    const body = await request.json();
+    const doc = {
+      id: uuidv4(), clinic_id: clinic.id,
+      name: body.name, type: body.type || 'other', contact: body.contact || '', notes: body.notes || '',
+      created_at: new Date(),
+    };
+    await db.collection('referrers').insertOne(doc);
+    return NextResponse.json({ ...doc, _id: undefined });
+  }
+
+  // GET /api/referrals
+  if (method === 'GET' && path === 'referrals') {
+    const items = await db.collection('referrals').find({ clinic_id: clinic.id }).sort({ created_at: -1 }).toArray();
+    return NextResponse.json(items.map((x) => ({ ...x, _id: undefined })));
+  }
+
+  // POST /api/referrals
+  if (method === 'POST' && path === 'referrals') {
+    const body = await request.json();
+    const referrer = body.referrer_id ? await db.collection('referrers').findOne({ id: body.referrer_id }) : null;
+    const doc = {
+      id: uuidv4(), clinic_id: clinic.id,
+      referrer_id: body.referrer_id,
+      referrer_name: referrer?.name || body.referrer_name || 'Unknown',
+      patient_name: body.patient_name,
+      patient_phone: body.patient_phone || '',
+      service: body.service || 'consultation',
+      status: body.status || 'contacted',
+      notes: body.notes || '',
+      created_at: new Date(),
+      converted_at: null,
+    };
+    await db.collection('referrals').insertOne(doc);
+    return NextResponse.json({ ...doc, _id: undefined });
+  }
+
+  // PATCH /api/referrals/:id - update status
+  if (method === 'PATCH' && pathParts[0] === 'referrals' && pathParts[1]) {
+    const body = await request.json();
+    const upd = { status: body.status };
+    if (body.status === 'converted') upd.converted_at = new Date();
+    await db.collection('referrals').updateOne({ id: pathParts[1] }, { $set: upd });
+    const item = await db.collection('referrals').findOne({ id: pathParts[1] });
+    return NextResponse.json({ ...item, _id: undefined });
+  }
+
+  // GET /api/referrals/leaderboard - aggregated stats per referrer
+  if (method === 'GET' && path === 'referrals/leaderboard') {
+    const [referrers, referrals] = await Promise.all([
+      db.collection('referrers').find({ clinic_id: clinic.id }).toArray(),
+      db.collection('referrals').find({ clinic_id: clinic.id }).toArray(),
+    ]);
+    const avg = clinic.avg_visit_value || 0;
+    const board = referrers.map((r) => {
+      const rs = referrals.filter((x) => x.referrer_id === r.id);
+      const converted = rs.filter((x) => x.status === 'converted').length;
+      const booked = rs.filter((x) => x.status === 'booked').length;
+      const contacted = rs.filter((x) => x.status === 'contacted').length;
+      const lost = rs.filter((x) => x.status === 'lost').length;
+      const revenue = converted * avg;
+      const conversion = rs.length ? Math.round((converted / rs.length) * 100) : 0;
+      return {
+        ...r, _id: undefined,
+        total: rs.length, converted, booked, contacted, lost, revenue, conversion,
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+    const totals = {
+      referrers: referrers.length,
+      referrals: referrals.length,
+      converted: referrals.filter((x) => x.status === 'converted').length,
+      revenue: referrals.filter((x) => x.status === 'converted').length * avg,
+      pipeline_value: (referrals.filter((x) => x.status === 'booked').length + referrals.filter((x) => x.status === 'contacted').length) * avg,
+    };
+    // Top type contribution
+    const byType = {};
+    for (const r of board) {
+      byType[r.type] = (byType[r.type] || 0) + r.revenue;
+    }
+    return NextResponse.json({ board, totals, by_type: byType });
+  }
+
+  // POST /api/ai/receptionist - conversational AI receptionist
+  if (method === 'POST' && path === 'ai/receptionist') {
+    const body = await request.json();
+    const { session_id, message, patient_name } = body;
+    if (!session_id || !message) return NextResponse.json({ error: 'session_id and message required' }, { status: 400 });
+
+    // fetch or create session
+    let session = await db.collection('receptionist_sessions').findOne({ id: session_id });
+    if (!session) {
+      session = { id: session_id, clinic_id: clinic.id, patient_name: patient_name || 'Patient', messages: [], created_at: new Date() };
+      await db.collection('receptionist_sessions').insertOne(session);
+    }
+
+    // append user message
+    session.messages.push({ role: 'user', content: message, at: new Date() });
+
+    const clinicCtx = `AI Receptionist for ${clinic.name} (${clinic.specialty}, ${clinic.city}). Doctor: ${clinic.doctor_name}. Fee \u20b9${clinic.avg_visit_value}. Hours: Mon-Sat 10-1 & 5-8, closed Sun. Services: consultation, cleaning, filling, RCT, extraction, whitening, braces.`;
+    const system = `${clinicCtx}\nHandle booking, reschedule, cancel, price, hours, FAQs. Warm, WhatsApp-style, max 3 short sentences. NEVER give medical/clinical advice \u2014 say doctor will address on visit. For booking/reschedule intent, suggest 2 specific slots this week.\nReturn STRICT JSON: {"reply": string, "intent": "booking"|"reschedule"|"cancel"|"price_inquiry"|"services"|"hours"|"faq"|"other", "suggested_slots": [{"day","time"}], "requires_human": bool}. JSON only.`;
+
+    // last 6 turns
+    const history = session.messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
+    const userInstr = `Conversation so far is in messages. Current user message: "${message}". Respond as the receptionist. Return only strict JSON, no markdown.`;
+
+    // call LLM directly with full history
+    const url = 'https://integrations.emergentagent.com/llm/chat/completions';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EMERGENT_LLM_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userInstr }],
+        temperature: 0.5,
+        max_tokens: 250,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Receptionist LLM error', res.status, errText);
+      return NextResponse.json({ error: `LLM ${res.status}: ${errText}` }, { status: 500 });
+    }
+    const data = await res.json();
+    let raw = data.choices?.[0]?.message?.content?.trim() || '{}';
+    if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { parsed = { reply: raw, intent: 'other', suggested_slots: [], requires_human: false }; }
+
+    session.messages.push({ role: 'assistant', content: parsed.reply, intent: parsed.intent, suggested_slots: parsed.suggested_slots || [], at: new Date() });
+    await db.collection('receptionist_sessions').updateOne({ id: session_id }, { $set: { messages: session.messages, last_intent: parsed.intent, updated_at: new Date() } });
+
+    return NextResponse.json(parsed);
+  }
+
+  // GET /api/receptionist/:sessionId
+  if (method === 'GET' && pathParts[0] === 'receptionist' && pathParts[1]) {
+    const session = await db.collection('receptionist_sessions').findOne({ id: pathParts[1] });
+    if (!session) return NextResponse.json({ messages: [] });
+    return NextResponse.json({ ...session, _id: undefined });
   }
 
   // POST /api/ai/marketing - generate marketing content (reel/festival/gbp/whatsapp)

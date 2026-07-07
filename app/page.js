@@ -17,6 +17,7 @@ import {
   Clock, AlertCircle, CalendarCheck, IndianRupee, ThumbsUp, ThumbsDown, ArrowRight, CheckCircle2, Loader2,
   Brain, Zap, Flame, Trophy, RefreshCw,
   Film, Copy, Megaphone, PartyPopper, MapPin,
+  Share2, Building2, Dumbbell, School, Stethoscope, UserPlus, HeartHandshake, Beaker,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -113,6 +114,34 @@ export default function App() {
     toast.success('Copied');
   };
 
+  // Referral Engine
+  const [refBoard, setRefBoard] = useState([]);
+  const [refTotals, setRefTotals] = useState({});
+  const [refByType, setRefByType] = useState({});
+  const [referrals, setReferrals] = useState([]);
+  const [refFilter, setRefFilter] = useState('all');
+
+  const loadReferrals = async () => {
+    const [b, r] = await Promise.all([
+      fetch('/api/referrals/leaderboard').then((x) => x.json()),
+      fetch('/api/referrals').then((x) => x.json()),
+    ]);
+    setRefBoard(b.board || []);
+    setRefTotals(b.totals || {});
+    setRefByType(b.by_type || {});
+    setReferrals(r);
+  };
+
+  const updateReferral = async (id, status) => {
+    await fetch(`/api/referrals/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    toast.success(status === 'converted' ? `Booked! +\u20b9${dashboard?.clinic?.avg_visit_value || 0} attributed` : `Marked ${status}`);
+    await loadReferrals();
+  };
+
   const runCoach = async () => {
     setCoachLoading(true);
     try {
@@ -158,6 +187,7 @@ export default function App() {
     setPatients(p);
     setCampaigns(c);
     setReviews(r);
+    await loadReferrals();
   };
 
   useEffect(() => {
@@ -310,10 +340,11 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-6 max-w-3xl">
+          <TabsList className="grid w-full grid-cols-7 max-w-4xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> Coach</TabsTrigger>
             <TabsTrigger value="marketing" className="gap-1"><Megaphone className="h-3.5 w-3.5" /> Marketing</TabsTrigger>
+            <TabsTrigger value="referrals" className="gap-1"><Share2 className="h-3.5 w-3.5" /> Referrals</TabsTrigger>
             <TabsTrigger value="patients">Patients</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="reputation">Reputation</TabsTrigger>
@@ -606,6 +637,144 @@ export default function App() {
                 </CardContent>
               </Card>
             )}
+          </TabsContent>
+
+          {/* Referrals tab */}
+          <TabsContent value="referrals" className="mt-6 space-y-6">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-cyan-500 via-sky-500 to-blue-600 p-6 text-white">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
+                    <Share2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">Referral Engine</h2>
+                    <p className="text-sky-100 text-sm mt-0.5 max-w-xl">Track every referral source — patients, pharmacies, doctors, labs, gyms, schools. Attribute revenue. Reward the sources that grow you.</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard icon={IndianRupee} label="Revenue from Referrals" value={`\u20b9${(refTotals.revenue || 0).toLocaleString('en-IN')}`} sub={`${refTotals.converted || 0} conversions`} accent="emerald" />
+              <StatCard icon={UserPlus} label="Total Referrals" value={refTotals.referrals || 0} sub={`from ${refTotals.referrers || 0} sources`} accent="blue" />
+              <StatCard icon={TrendingUp} label="Pipeline Value" value={`\u20b9${(refTotals.pipeline_value || 0).toLocaleString('en-IN')}`} sub="booked + contacted" accent="amber" />
+              <StatCard icon={Trophy} label="Top Source" value={refBoard[0]?.name?.split(' - ')[0]?.split(' (')[0] || '—'} sub={refBoard[0] ? `\u20b9${refBoard[0].revenue.toLocaleString('en-IN')}` : ''} accent="violet" />
+            </div>
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-500" /> Referral Leaderboard</CardTitle>
+                <CardDescription>Ranked by attributed revenue this year.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {refBoard.map((r, idx) => {
+                    const typeIcons = { pharmacy: Building2, doctor: Stethoscope, lab: Beaker, gym: Dumbbell, school: School, patient: HeartHandshake, other: UserPlus };
+                    const Icon = typeIcons[r.type] || UserPlus;
+                    const rank = idx + 1;
+                    return (
+                      <div key={r.id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
+                        <div className={`h-8 w-8 rounded-full grid place-items-center font-bold text-sm shrink-0 ${rank === 1 ? 'bg-amber-100 text-amber-700' : rank === 2 ? 'bg-slate-200 text-slate-700' : rank === 3 ? 'bg-orange-100 text-orange-700' : 'bg-white text-slate-500'}`}>
+                          {rank}
+                        </div>
+                        <div className="h-9 w-9 rounded-lg bg-white grid place-items-center shrink-0 border border-slate-200">
+                          <Icon className="h-4 w-4 text-slate-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-slate-900 truncate">{r.name}</p>
+                            <Badge variant="outline" className="text-xs capitalize">{r.type}</Badge>
+                          </div>
+                          <p className="text-xs text-slate-500">{r.total} referrals · {r.converted} converted · {r.conversion}% conversion</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-emerald-700">₹{r.revenue.toLocaleString('en-IN')}</p>
+                          <p className="text-xs text-slate-500">attributed</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!refBoard.length && <p className="text-center text-slate-500 py-6 text-sm">No referrers yet.</p>}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid lg:grid-cols-3 gap-4">
+              <Card className="border-0 shadow-sm lg:col-span-2">
+                <CardHeader>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <CardTitle>Referrals Pipeline</CardTitle>
+                      <CardDescription>All incoming referrals across every source.</CardDescription>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      {['all', 'contacted', 'booked', 'converted', 'lost'].map((s) => (
+                        <Button key={s} size="sm" variant={refFilter === s ? 'default' : 'outline'} onClick={() => setRefFilter(s)} className="capitalize">
+                          {s}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                    {referrals.filter((r) => refFilter === 'all' || r.status === refFilter).map((r) => {
+                      const statusColor = {
+                        contacted: 'bg-slate-100 text-slate-700',
+                        booked: 'bg-blue-100 text-blue-700 border-blue-200',
+                        converted: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                        lost: 'bg-rose-100 text-rose-700 border-rose-200',
+                      };
+                      return (
+                        <div key={r.id} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-slate-900 truncate">{r.patient_name}</p>
+                            <p className="text-xs text-slate-500 truncate">{r.service} · via <b>{r.referrer_name}</b> · {new Date(r.created_at).toLocaleDateString('en-IN')}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge variant="outline" className={statusColor[r.status]}>{r.status}</Badge>
+                            {r.status !== 'converted' && r.status !== 'lost' && (
+                              <>
+                                {r.status === 'contacted' && (
+                                  <Button size="sm" variant="outline" onClick={() => updateReferral(r.id, 'booked')}>Booked</Button>
+                                )}
+                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => updateReferral(r.id, 'converted')}>Convert</Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!referrals.filter((r) => refFilter === 'all' || r.status === refFilter).length && (
+                      <p className="text-center text-slate-500 py-6 text-sm">No referrals in this bucket.</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 shadow-sm">
+                <CardHeader><CardTitle>Revenue by Source Type</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {Object.entries(refByType).sort((a, b) => b[1] - a[1]).map(([type, rev]) => {
+                    const total = Object.values(refByType).reduce((s, v) => s + v, 0) || 1;
+                    const pct = Math.round((rev / total) * 100);
+                    const typeIcons = { pharmacy: Building2, doctor: Stethoscope, lab: Beaker, gym: Dumbbell, school: School, patient: HeartHandshake, other: UserPlus };
+                    const Icon = typeIcons[type] || UserPlus;
+                    return (
+                      <div key={type} className="space-y-1">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="flex items-center gap-1.5 capitalize font-medium text-slate-800"><Icon className="h-3.5 w-3.5" /> {type}</span>
+                          <span className="font-bold text-emerald-700">₹{rev.toLocaleString('en-IN')}</span>
+                        </div>
+                        <Progress value={pct} className="h-2" />
+                      </div>
+                    );
+                  })}
+                  {!Object.keys(refByType).length && <p className="text-slate-500 text-sm text-center py-4">No data yet.</p>}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
           <TabsContent value="patients" className="mt-6">
             <Card className="border-0 shadow-sm">
