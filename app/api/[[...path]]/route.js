@@ -220,6 +220,58 @@ async function handle(request, method, pathParts) {
     }
   }
 
+  // POST /api/ai/coach - AI Business Coach insights based on current clinic data
+  if (method === 'POST' && path === 'ai/coach') {
+    const patients = await db.collection('patients').find({ clinic_id: clinic.id }).toArray();
+    const segCounts = { overdue_followup: 0, inactive_6mo: 0, annual_checkup: 0, active: 0 };
+    for (const p of patients) segCounts[segmentOf(p)]++;
+    const sends = await db.collection('sends').find({ clinic_id: clinic.id }).toArray();
+    const campaigns = await db.collection('campaigns').find({ clinic_id: clinic.id }).toArray();
+    const reviews = await db.collection('reviews').find({ clinic_id: clinic.id }).toArray();
+    const sent = sends.filter((s) => s.status !== 'pending').length;
+    const replied = sends.filter((s) => ['replied', 'booked'].includes(s.status)).length;
+    const booked = sends.filter((s) => s.status === 'booked').length;
+    const positive = reviews.filter((r) => r.sentiment === 'positive').length;
+    const negative = reviews.filter((r) => r.sentiment === 'negative').length;
+    const avgRating = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) : null;
+    const recallable = segCounts.overdue_followup + segCounts.inactive_6mo + segCounts.annual_checkup;
+    const untapped = Math.round(recallable * 0.12 * (clinic.avg_visit_value || 0));
+
+    const context = {
+      clinic_name: clinic.name,
+      specialty: clinic.specialty,
+      city: clinic.city,
+      avg_visit_value: clinic.avg_visit_value,
+      total_patients: patients.length,
+      segments: segCounts,
+      campaigns_launched: campaigns.length,
+      messages_sent: sent,
+      replied,
+      booked,
+      recovered_revenue: booked * (clinic.avg_visit_value || 0),
+      untapped_potential_this_month: untapped,
+      reply_rate: sent ? Math.round((replied / sent) * 100) : null,
+      conversion_rate: replied ? Math.round((booked / replied) * 100) : null,
+      reviews_total: reviews.length,
+      reviews_positive: positive,
+      reviews_negative: negative,
+      average_rating: avgRating,
+    };
+
+    const system = 'You are the AI Business Coach for an Indian medical clinic. You give sharp, plain-language OPERATIONAL and GROWTH insights only \u2014 never clinical advice, never treatment recommendations. Every insight ties to money, patient retention, or reputation. Use INR (\u20b9) and Indian number formatting. Be direct, specific, actionable. Never generic. Focus on the biggest levers first.';
+    const user = `Here is today\u2019s clinic snapshot as JSON:\n${JSON.stringify(context, null, 2)}\n\nProduce EXACTLY 4 insights as a strict JSON array. Each object must have keys: "title" (max 8 words, punchy), "insight" (2 sentences plain-language observation), "action" (1 sentence specific next step the doctor should take today), "impact" (short phrase estimating rupee upside or reputation gain, e.g. "\u20b918,000 recoverable" or "+0.3 rating in 2 weeks"), "severity" (one of: "critical", "opportunity", "wins", "reputation"). Return ONLY the JSON array, no markdown, no commentary.`;
+
+    try {
+      const raw = await callLLM(system, user);
+      let cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const insights = JSON.parse(cleaned);
+      return NextResponse.json({ insights, context });
+    } catch (e) {
+      return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
+    }
+  }
+
   // POST /api/campaigns - create a campaign for a segment with a message template, generate sends
   if (method === 'POST' && path === 'campaigns') {
     const body = await request.json();

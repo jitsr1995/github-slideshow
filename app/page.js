@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import {
   Activity, Users, MessageSquare, Star, TrendingUp, Send, Sparkles, PhoneCall,
   Clock, AlertCircle, CalendarCheck, IndianRupee, ThumbsUp, ThumbsDown, ArrowRight, CheckCircle2, Loader2,
+  Brain, Zap, Flame, Trophy, RefreshCw,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -60,6 +61,29 @@ export default function App() {
   const [reviews, setReviews] = useState([]);
   const [tab, setTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
+
+  // AI Coach
+  const [coachInsights, setCoachInsights] = useState([]);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachLoaded, setCoachLoaded] = useState(false);
+
+  const runCoach = async () => {
+    setCoachLoading(true);
+    try {
+      const res = await fetch('/api/ai/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      if (data.insights) {
+        setCoachInsights(data.insights);
+        setCoachLoaded(true);
+        toast.success('AI Coach analyzed your clinic');
+      } else {
+        toast.error('Coach failed: ' + (data.error || 'unknown'));
+      }
+    } catch (e) {
+      toast.error(e.message);
+    }
+    setCoachLoading(false);
+  };
 
   // campaign dialog
   const [openCampaign, setOpenCampaign] = useState(false);
@@ -240,8 +264,9 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-4 max-w-xl">
+          <TabsList className="grid w-full grid-cols-5 max-w-2xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> AI Coach</TabsTrigger>
             <TabsTrigger value="patients">Patients</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="reputation">Reputation</TabsTrigger>
@@ -303,7 +328,81 @@ export default function App() {
             </div>
           </TabsContent>
 
-          {/* Patients tab */}
+          {/* AI Coach tab */}
+          <TabsContent value="coach" className="mt-6 space-y-6">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 p-6 text-white">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
+                      <Brain className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">AI Business Coach</h2>
+                      <p className="text-violet-100 text-sm mt-0.5 max-w-xl">Plain-language operational insights tied to money. No clinical advice — only growth, retention, and reputation levers.</p>
+                    </div>
+                  </div>
+                  <Button onClick={runCoach} disabled={coachLoading} className="bg-white text-violet-700 hover:bg-violet-50">
+                    {coachLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                    {coachLoaded ? 'Re-analyze' : 'Analyze My Clinic'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {!coachLoaded && !coachLoading && (
+              <div className="text-center py-16 text-slate-500">
+                <Brain className="h-12 w-12 mx-auto text-slate-300 mb-3" />
+                <p>Tap "Analyze My Clinic" to get today's insights.</p>
+              </div>
+            )}
+
+            {coachLoading && (
+              <div className="text-center py-16 text-slate-500">
+                <Loader2 className="h-8 w-8 mx-auto animate-spin text-violet-500 mb-3" />
+                <p>Reading your clinic's numbers…</p>
+              </div>
+            )}
+
+            {coachInsights.length > 0 && (
+              <div className="grid md:grid-cols-2 gap-4">
+                {coachInsights.map((ins, i) => {
+                  const sevMap = {
+                    critical: { icon: Flame, bg: 'from-rose-500 to-red-600', badge: 'bg-rose-100 text-rose-700 border-rose-200', label: 'Critical' },
+                    opportunity: { icon: Zap, bg: 'from-amber-500 to-orange-600', badge: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Opportunity' },
+                    wins: { icon: Trophy, bg: 'from-emerald-500 to-teal-600', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', label: 'Win' },
+                    reputation: { icon: Star, bg: 'from-violet-500 to-fuchsia-600', badge: 'bg-violet-100 text-violet-700 border-violet-200', label: 'Reputation' },
+                  };
+                  const s = sevMap[ins.severity] || sevMap.opportunity;
+                  const Icon = s.icon;
+                  return (
+                    <Card key={i} className="border-0 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-lg bg-gradient-to-br ${s.bg} text-white shrink-0`}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-slate-900">{ins.title}</h3>
+                              <Badge variant="outline" className={s.badge}>{s.label}</Badge>
+                            </div>
+                            <p className="text-sm text-slate-600 leading-relaxed">{ins.insight}</p>
+                            <div className="mt-3 space-y-1.5 text-sm">
+                              <div className="flex gap-2"><span className="text-slate-400 shrink-0">→ Action:</span><span className="text-slate-800 font-medium">{ins.action}</span></div>
+                              <div className="flex gap-2"><span className="text-slate-400 shrink-0">💰 Impact:</span><span className="text-emerald-700 font-semibold">{ins.impact}</span></div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-xs text-slate-400 text-center italic">AI Coach never provides clinical or treatment advice — only operational, growth, and reputation guidance.</p>
+          </TabsContent>
           <TabsContent value="patients" className="mt-6">
             <Card className="border-0 shadow-sm">
               <CardHeader>
