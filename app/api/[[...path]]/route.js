@@ -127,6 +127,45 @@ function seedPatients(clinicId) {
   }));
 }
 
+function scorePatient(patient, sends, reviews, referrals) {
+  const now = new Date();
+  const last = new Date(patient.last_visit_date);
+  const daysSince = daysBetween(last, now);
+  const mySends = sends.filter((s) => s.patient_id === patient.id);
+  const myReviews = reviews.filter((r) => r.patient_id === patient.id);
+  const firstName = patient.name.split(' ')[0];
+  const myReferrals = referrals.filter((r) => r.referrer_name && r.referrer_name.startsWith(firstName));
+
+  let ret = Math.max(0, 100 - Math.floor(daysSince / 2));
+  if (mySends.some((s) => s.status === 'booked')) ret = Math.min(100, ret + 25);
+  if (mySends.some((s) => s.status === 'replied')) ret = Math.min(100, ret + 15);
+  if (patient.next_followup_date && daysBetween(new Date(patient.next_followup_date), now) >= 0) ret = Math.min(100, ret + 10);
+
+  let churn = Math.max(0, 100 - ret);
+  if (myReviews.some((r) => r.sentiment === 'negative')) churn = Math.min(100, churn + 40);
+  const attempted = mySends.some((s) => s.status === 'sent');
+  const responded = mySends.some((s) => ['replied', 'booked'].includes(s.status));
+  if (attempted && !responded) churn = Math.min(100, churn + 10);
+
+  let refer = 20;
+  if (myReviews.some((r) => r.sentiment === 'positive')) refer += 40;
+  if (myReferrals.length > 0) refer = Math.min(100, refer + 30 + myReferrals.length * 10);
+  if (mySends.some((s) => s.status === 'booked')) refer += 10;
+  if (daysSince < 60) refer += 10;
+  refer = Math.min(100, refer);
+
+  return {
+    return_probability: ret,
+    churn_risk: churn,
+    referral_likelihood: refer,
+    days_since_visit: daysSince,
+    campaigns_touched: mySends.length,
+    review_count: myReviews.length,
+    referrals_made: myReferrals.length,
+  };
+}
+
+
 async function seedCompetitors(clinicId) {
   const daysAgo = (d) => new Date(Date.now() - d * 86400000);
   return [
@@ -309,6 +348,40 @@ async function handle(request, method, pathParts) {
     } catch (e) {
       return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
     }
+  }
+
+  // GET /api/patients/intelligence
+  if (method === 'GET' && path === 'patients/intelligence') {
+    const [patients, sends, reviews, referrals] = await Promise.all([
+      db.collection('patients').find({ clinic_id: clinic.id }).toArray(),
+      db.collection('sends').find({ clinic_id: clinic.id }).toArray(),
+      db.collection('reviews').find({ clinic_id: clinic.id }).toArray(),
+      db.collection('referrals').find({ clinic_id: clinic.id }).toArray(),
+    ]);
+    const scored = patients.map((p) => ({ ...p, _id: undefined, segment: segmentOf(p), scores: scorePatient(p, sends, reviews, referrals) }));
+    const topChurn = [...scored].sort((a, b) => b.scores.churn_risk - a.scores.churn_risk).slice(0, 6);
+    const topReferrers = [...scored].sort((a, b) => b.scores.referral_likelihood - a.scores.referral_likelihood).slice(0, 6);
+    const topReturn = [...scored].filter((p) => p.segment !== 'active').sort((a, b) => b.scores.return_probability - a.scores.return_probability).slice(0, 6);
+    const bands = { safe: 0, watch: 0, at_risk: 0, critical: 0 };
+    for (const p of scored) {
+      const c = p.scores.churn_risk;
+      if (c < 30) bands.safe++;
+      else if (c < 55) bands.watch++;
+      else if (c < 80) bands.at_risk++;
+      else bands.critical++;
+    }
+    const avgReturn = Math.round(scored.reduce((s, p) => s + p.scores.return_probability, 0) / (scored.length || 1));
+    const avgChurn = Math.round(scored.reduce((s, p) => s + p.scores.churn_risk, 0) / (scored.length || 1));
+    const potential = scored.reduce((s, p) => s + (p.scores.return_probability / 100) * (clinic.avg_visit_value || 0), 0);
+    return NextResponse.json({
+      patients: scored,
+      top_churn: topChurn,
+      top_referrers: topReferrers,
+      top_return: topReturn,
+      bands,
+      averages: { return_probability: avgReturn, churn_risk: avgChurn },
+      projected_revenue_next_cycle: Math.round(potential),
+    });
   }
 
   // GET /api/ranking - competitor + gbp overview

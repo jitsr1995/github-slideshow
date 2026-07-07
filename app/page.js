@@ -20,6 +20,7 @@ import {
   Share2, Building2, Dumbbell, School, Stethoscope, UserPlus, HeartHandshake, Beaker,
   BarChart3, Target, ArrowUpRight, ArrowDownRight, MapPinned,
   Bot, User, MessageCircle,
+  Gauge, TrendingDown, Award,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -57,8 +58,33 @@ function StatCard({ icon: Icon, label, value, sub, accent = 'emerald' }) {
   );
 }
 
-function ContentBlock({ label, text, onCopy }) {
+function IntelList({ title, desc, rows, scoreKey, barColor }) {
   return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription className="text-xs">{desc}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2.5">
+        {rows.map((p) => (
+          <div key={p.id} className="space-y-1">
+            <div className="flex justify-between items-center text-sm">
+              <span className="font-medium text-slate-800 truncate">{p.name}</span>
+              <b className="text-slate-700 shrink-0 ml-2">{p.scores[scoreKey]}</b>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full bg-gradient-to-r ${barColor}`} style={{ width: `${p.scores[scoreKey]}%` }} />
+            </div>
+            <p className="text-xs text-slate-500">{p.visit_reason} · {p.scores.days_since_visit}d ago{p.scores.referrals_made ? ` · brought ${p.scores.referrals_made} referrals` : ''}</p>
+          </div>
+        ))}
+        {!rows.length && <p className="text-sm text-slate-500 text-center py-3">No data yet.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ContentBlock({ label, text, onCopy }) {  return (
     <div>
       <div className="flex justify-between items-center mb-1">
         <Label className="text-sm text-slate-600">{label}</Label>
@@ -130,9 +156,15 @@ export default function App() {
     setRanking(r);
   };
 
+  // Patient Intelligence
+  const [intel, setIntel] = useState(null);
+  const loadIntel = async () => {
+    const r = await fetch('/api/patients/intelligence').then((x) => x.json());
+    setIntel(r);
+  };
+
   // AI Receptionist
-  const [rxSessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
-  const [rxMessages, setRxMessages] = useState([
+  const [rxSessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);  const [rxMessages, setRxMessages] = useState([
     { role: 'assistant', content: `Namaste! Welcome to ${''}Bright Smile Dental. I\u2019m the AI receptionist \u2014 how can I help you today? 😊 (Try: "Book cleaning tomorrow", "What are your timings?", or "How much for a root canal?")` },
   ]);
   const [rxInput, setRxInput] = useState('');
@@ -176,6 +208,7 @@ export default function App() {
     setRefByType(b.by_type || {});
     setReferrals(r);
     await loadRanking();
+    await loadIntel();
   };
 
   const updateReferral = async (id, status) => {
@@ -1074,6 +1107,12 @@ export default function App() {
             </div>
           </TabsContent>
           <TabsContent value="patients" className="mt-6">
+            <Tabs defaultValue="list">
+              <TabsList className="mb-4">
+                <TabsTrigger value="list">Patient List</TabsTrigger>
+                <TabsTrigger value="intel" className="gap-1"><Gauge className="h-3.5 w-3.5" /> Patient Intelligence</TabsTrigger>
+              </TabsList>
+              <TabsContent value="list">
             <Card className="border-0 shadow-sm">
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1118,9 +1157,54 @@ export default function App() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+              </TabsContent>
+              <TabsContent value="intel">
+                {intel ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <StatCard icon={Gauge} label="Avg Return Probability" value={`${intel.averages.return_probability}%`} sub={`across ${intel.patients?.length || 0} patients`} accent="emerald" />
+                      <StatCard icon={TrendingDown} label="Avg Churn Risk" value={`${intel.averages.churn_risk}%`} sub={`${intel.bands.critical} critical`} accent="rose" />
+                      <StatCard icon={Award} label="Referral Advocates" value={intel.top_referrers?.filter((p) => p.scores.referral_likelihood >= 60).length || 0} sub="likely to refer" accent="violet" />
+                      <StatCard icon={IndianRupee} label="Projected Revenue" value={`\u20b9${intel.projected_revenue_next_cycle?.toLocaleString('en-IN')}`} sub="probability-weighted" accent="blue" />
+                    </div>
 
-          {/* Campaigns tab */}
+                    <Card className="border-0 shadow-sm">
+                      <CardHeader>
+                        <CardTitle>Churn Risk Distribution</CardTitle>
+                        <CardDescription>How many patients fall into each risk band right now.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-4 gap-3">
+                          {[
+                            { key: 'safe', label: 'Safe', color: 'from-emerald-500 to-teal-600', range: '0-30%' },
+                            { key: 'watch', label: 'Watch', color: 'from-amber-500 to-orange-500', range: '30-55%' },
+                            { key: 'at_risk', label: 'At Risk', color: 'from-orange-500 to-red-500', range: '55-80%' },
+                            { key: 'critical', label: 'Critical', color: 'from-rose-500 to-red-600', range: '80-100%' },
+                          ].map((b) => (
+                            <div key={b.key} className={`p-4 rounded-xl bg-gradient-to-br ${b.color} text-white`}>
+                              <p className="text-3xl font-bold">{intel.bands[b.key]}</p>
+                              <p className="text-sm mt-0.5">{b.label}</p>
+                              <p className="text-xs opacity-80">{b.range}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <div className="grid lg:grid-cols-3 gap-4">
+                      <IntelList title="🔴 Highest Churn Risk" desc="Focus here first — running out of time." rows={intel.top_churn} scoreKey="churn_risk" barColor="from-rose-500 to-red-600" />
+                      <IntelList title="⭐ Most Likely to Return" desc="Send a warm follow-up now." rows={intel.top_return} scoreKey="return_probability" barColor="from-emerald-500 to-teal-600" />
+                      <IntelList title="🤝 Top Referral Advocates" desc="Reward + ask for referrals." rows={intel.top_referrers} scoreKey="referral_likelihood" barColor="from-violet-500 to-fuchsia-600" />
+                    </div>
+
+                    <p className="text-xs text-slate-400 text-center italic">Scores are rule-based (visit recency + campaign responses + review sentiment + referral history). They refresh automatically as new events happen.</p>
+                  </div>
+                ) : (
+                  <div className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" /></div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
           <TabsContent value="campaigns" className="mt-6 space-y-6">
             <div className="flex justify-between items-center">
               <div>
