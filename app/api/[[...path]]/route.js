@@ -81,6 +81,30 @@ async function ensureClinic(db) {
   return clinic;
 }
 
+function seedBranchPatients(clinicId, count, avgVal) {
+  const now = new Date();
+  const daysAgo = (d) => new Date(now.getTime() - d * 86400000);
+  const daysAhead = (d) => new Date(now.getTime() + d * 86400000);
+  const names = ['Arjun Sen', 'Priya Ghosh', 'Rahul Bose', 'Anita Roy', 'Vikram Basu', 'Sneha Dey', 'Karan Paul', 'Riya Sarkar', 'Manish Nag', 'Kavya Dutta', 'Rohan Mitra', 'Sara Chatterjee', 'Aditya Sen', 'Neha Roy', 'Sanjay Bose', 'Divya Mukherjee', 'Amit Chowdhury', 'Ishita Banerjee', 'Nikhil Ghosh', 'Pooja Dey', 'Ravi Sen', 'Meera Bose', 'Aakash Roy', 'Sonia Paul', 'Rajiv Nag', 'Kiran Dutta', 'Tanvi Mitra', 'Ankit Basu', 'Deepa Chatterjee', 'Yash Sarkar'];
+  const reasons = ['Cleaning', 'Filling', 'Root canal', 'Extraction', 'Whitening', 'Braces', 'Consultation'];
+  return Array.from({ length: count }, (_, i) => {
+    const isActive = i % 4 === 0;
+    const isInactive = i % 5 === 0 && !isActive;
+    return {
+      id: uuidv4(),
+      clinic_id: clinicId,
+      name: names[i % names.length] + (i >= names.length ? ` ${Math.floor(i / names.length) + 1}` : ''),
+      phone: `9198${Math.floor(30000000 + Math.random() * 9999999)}`,
+      last_visit_date: daysAgo(isActive ? 15 + i * 2 : isInactive ? 200 + i * 3 : 40 + i * 5),
+      next_followup_date: isActive ? daysAhead(30 + i) : null,
+      visit_reason: reasons[i % reasons.length],
+      notes: '',
+      tags: [],
+      created_at: new Date(),
+    };
+  });
+}
+
 function seedPatients(clinicId) {
   const now = new Date();
   const daysAgo = (d) => new Date(now.getTime() - d * 86400000);
@@ -348,6 +372,116 @@ async function handle(request, method, pathParts) {
     } catch (e) {
       return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
     }
+  }
+
+  // GET /api/clinics - list all clinics (branches)
+  if (method === 'GET' && path === 'clinics') {
+    const items = await db.collection('clinics').find({}).sort({ created_at: 1 }).toArray();
+    return NextResponse.json(items.map((x) => ({ ...x, _id: undefined })));
+  }
+
+  // POST /api/clinics/create-branch - spin up a second branch with seeded data
+  if (method === 'POST' && path === 'clinics/create-branch') {
+    const body = await request.json().catch(() => ({}));
+    const preset = body.preset || 'kolkata';
+    const presets = {
+      kolkata: { name: 'Bright Smile - Kolkata Branch', doctor_name: 'Dr. Rahul Sen', city: 'Kolkata', avg_visit_value: 1500, patients: 30, campaigns: 5, conversions: 8, reviews_pos: 12, reviews_neg: 1, google_review_link: 'https://g.page/r/brightsmilekolkata/review' },
+      durgapur: { name: 'Bright Smile - Durgapur', doctor_name: 'Dr. Anjali Basu', city: 'Durgapur', avg_visit_value: 900, patients: 15, campaigns: 2, conversions: 3, reviews_pos: 5, reviews_neg: 2, google_review_link: 'https://g.page/r/brightsmiledurgapur/review' },
+    };
+    const p = presets[preset] || presets.kolkata;
+    // ensure no duplicate
+    const existing = await db.collection('clinics').findOne({ name: p.name });
+    if (existing) return NextResponse.json({ error: 'Branch already exists', clinic: { ...existing, _id: undefined } }, { status: 400 });
+
+    const branch = {
+      id: uuidv4(), _default: false, name: p.name, doctor_name: p.doctor_name,
+      specialty: 'Dentistry', city: p.city, avg_visit_value: p.avg_visit_value,
+      google_review_link: p.google_review_link, created_at: new Date(),
+    };
+    await db.collection('clinics').insertOne(branch);
+
+    // seed patients
+    const patients = seedBranchPatients(branch.id, p.patients, p.avg_visit_value);
+    if (patients.length) await db.collection('patients').insertMany(patients);
+
+    // seed a few campaigns + sends
+    const camps = [];
+    const sends = [];
+    for (let i = 0; i < p.campaigns; i++) {
+      const camp = { id: uuidv4(), clinic_id: branch.id, type: 'recall', segment: 'inactive_6mo', message_template: 'Hi {name}, time for your dental check!', created_at: new Date(Date.now() - (i + 1) * 7 * 86400000), total_targets: 6 };
+      camps.push(camp);
+      // create 6 sends with varying statuses
+      for (let j = 0; j < 6; j++) {
+        const status = j < 5 ? 'sent' : 'pending';
+        sends.push({ id: uuidv4(), campaign_id: camp.id, clinic_id: branch.id, patient_id: patients[j % patients.length]?.id, patient_name: patients[j % patients.length]?.name, phone: patients[j % patients.length]?.phone, message: 'Hi, time for check', wa_link: '#', status, created_at: camp.created_at });
+      }
+    }
+    // mark p.conversions as booked
+    for (let k = 0; k < Math.min(p.conversions, sends.length); k++) sends[k].status = 'booked';
+    if (camps.length) await db.collection('campaigns').insertMany(camps);
+    if (sends.length) await db.collection('sends').insertMany(sends);
+
+    // seed reviews
+    const reviews = [];
+    const revPatients = patients.slice(0, p.reviews_pos + p.reviews_neg);
+    for (let i = 0; i < p.reviews_pos; i++) {
+      reviews.push({ id: uuidv4(), clinic_id: branch.id, patient_id: revPatients[i]?.id, patient_name: revPatients[i]?.name, rating: i % 2 === 0 ? 5 : 4, sentiment: 'positive', routed_to: 'google', feedback_text: '', created_at: new Date(Date.now() - i * 4 * 86400000) });
+    }
+    for (let i = 0; i < p.reviews_neg; i++) {
+      reviews.push({ id: uuidv4(), clinic_id: branch.id, patient_id: revPatients[p.reviews_pos + i]?.id, patient_name: revPatients[p.reviews_pos + i]?.name, rating: 2, sentiment: 'negative', routed_to: 'private_feedback', feedback_text: 'Wait time was long', created_at: new Date() });
+    }
+    if (reviews.length) await db.collection('reviews').insertMany(reviews);
+
+    return NextResponse.json({ ok: true, clinic: { ...branch, _id: undefined } });
+  }
+
+  // GET /api/portfolio - side-by-side metrics for all clinics
+  if (method === 'GET' && path === 'portfolio') {
+    const clinics = await db.collection('clinics').find({}).sort({ created_at: 1 }).toArray();
+    const rows = await Promise.all(clinics.map(async (c) => {
+      const [patients, sends, reviews, campaigns] = await Promise.all([
+        db.collection('patients').find({ clinic_id: c.id }).toArray(),
+        db.collection('sends').find({ clinic_id: c.id }).toArray(),
+        db.collection('reviews').find({ clinic_id: c.id }).toArray(),
+        db.collection('campaigns').find({ clinic_id: c.id }).toArray(),
+      ]);
+      const segCounts = { overdue_followup: 0, inactive_6mo: 0, annual_checkup: 0, active: 0 };
+      for (const p of patients) segCounts[segmentOf(p)]++;
+      const sent = sends.filter((s) => s.status !== 'pending').length;
+      const replied = sends.filter((s) => ['replied', 'booked'].includes(s.status)).length;
+      const booked = sends.filter((s) => s.status === 'booked').length;
+      const recoveredRevenue = booked * (c.avg_visit_value || 0);
+      const positive = reviews.filter((r) => r.sentiment === 'positive').length;
+      const negative = reviews.filter((r) => r.sentiment === 'negative').length;
+      const avgRating = reviews.length ? +(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(2) : null;
+      const replyRate = sent ? Math.round((replied / sent) * 100) : 0;
+      const conversion = replied ? Math.round((booked / replied) * 100) : 0;
+      const marketingROI = sent ? Math.round(recoveredRevenue / Math.max(1, sent * 2)) : 0; // ~₹2 cost per WA message
+      const occupancyProxy = patients.length ? Math.round((segCounts.active / patients.length) * 100) : 0;
+      return {
+        id: c.id, name: c.name, doctor_name: c.doctor_name, city: c.city, avg_visit_value: c.avg_visit_value,
+        total_patients: patients.length, segments: segCounts,
+        campaigns: campaigns.length, sent, replied, booked,
+        recovered_revenue: recoveredRevenue, reply_rate: replyRate, conversion,
+        reviews_total: reviews.length, positive, negative, avg_rating: avgRating,
+        marketing_roi_x: marketingROI,
+        occupancy: occupancyProxy,
+      };
+    }));
+    const totals = {
+      clinics: rows.length,
+      total_patients: rows.reduce((s, r) => s + r.total_patients, 0),
+      total_recovered_revenue: rows.reduce((s, r) => s + r.recovered_revenue, 0),
+      total_reviews: rows.reduce((s, r) => s + r.reviews_total, 0),
+      total_campaigns: rows.reduce((s, r) => s + r.campaigns, 0),
+    };
+    const best = {
+      revenue: [...rows].sort((a, b) => b.recovered_revenue - a.recovered_revenue)[0],
+      rating: [...rows].filter((r) => r.avg_rating).sort((a, b) => (b.avg_rating || 0) - (a.avg_rating || 0))[0],
+      occupancy: [...rows].sort((a, b) => b.occupancy - a.occupancy)[0],
+      conversion: [...rows].sort((a, b) => b.conversion - a.conversion)[0],
+    };
+    return NextResponse.json({ rows, totals, best });
   }
 
   // GET /api/patients/intelligence

@@ -21,6 +21,7 @@ import {
   BarChart3, Target, ArrowUpRight, ArrowDownRight, MapPinned,
   Bot, User, MessageCircle,
   Gauge, TrendingDown, Award,
+  Network, Plus, Crown,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -163,6 +164,28 @@ export default function App() {
     setIntel(r);
   };
 
+  // Portfolio
+  const [portfolio, setPortfolio] = useState(null);
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const loadPortfolio = async () => {
+    const r = await fetch('/api/portfolio').then((x) => x.json());
+    setPortfolio(r);
+  };
+  const createBranch = async (preset) => {
+    setCreatingBranch(true);
+    try {
+      const res = await fetch('/api/clinics/create-branch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset }) });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Branch created: ${data.clinic.name}`);
+        await loadPortfolio();
+      } else {
+        toast.error(data.error || 'Failed');
+      }
+    } catch (e) { toast.error(e.message); }
+    setCreatingBranch(false);
+  };
+
   // AI Receptionist
   const [rxSessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);  const [rxMessages, setRxMessages] = useState([
     { role: 'assistant', content: `Namaste! Welcome to ${''}Bright Smile Dental. I\u2019m the AI receptionist \u2014 how can I help you today? 😊 (Try: "Book cleaning tomorrow", "What are your timings?", or "How much for a root canal?")` },
@@ -209,6 +232,7 @@ export default function App() {
     setReferrals(r);
     await loadRanking();
     await loadIntel();
+    await loadPortfolio();
   };
 
   const updateReferral = async (id, status) => {
@@ -419,8 +443,9 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-9 max-w-6xl">
+          <TabsList className="grid w-full grid-cols-10 max-w-6xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="portfolio" className="gap-1"><Network className="h-3.5 w-3.5" /> Portfolio</TabsTrigger>
             <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> Coach</TabsTrigger>
             <TabsTrigger value="marketing" className="gap-1"><Megaphone className="h-3.5 w-3.5" /> Marketing</TabsTrigger>
             <TabsTrigger value="ranking" className="gap-1"><Target className="h-3.5 w-3.5" /> Ranking</TabsTrigger>
@@ -487,7 +512,154 @@ export default function App() {
             </div>
           </TabsContent>
 
-          {/* AI Coach tab */}
+          {/* Portfolio tab (Multi-Clinic Intelligence) */}
+          <TabsContent value="portfolio" className="mt-6 space-y-6">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-6 text-white">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <div className="h-11 w-11 rounded-xl bg-white/10 backdrop-blur grid place-items-center">
+                      <Network className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">Multi-Clinic Portfolio</h2>
+                      <p className="text-slate-300 text-sm mt-0.5 max-w-xl">Side-by-side revenue, occupancy, marketing ROI and reputation across every branch — one screen to run the whole chain.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => createBranch('kolkata')} disabled={creatingBranch}>
+                      {creatingBranch ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />} Add Kolkata Branch
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => createBranch('durgapur')} disabled={creatingBranch}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Add Durgapur Branch
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {portfolio && (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard icon={Building2} label="Branches" value={portfolio.totals.clinics} sub="active clinics" accent="blue" />
+                  <StatCard icon={Users} label="Total Patients" value={portfolio.totals.total_patients} sub={`across ${portfolio.totals.clinics} branches`} accent="violet" />
+                  <StatCard icon={IndianRupee} label="Total Recovered" value={`\u20b9${(portfolio.totals.total_recovered_revenue || 0).toLocaleString('en-IN')}`} sub={`${portfolio.totals.total_campaigns} campaigns`} accent="emerald" />
+                  <StatCard icon={Star} label="Total Reviews" value={portfolio.totals.total_reviews} sub="collected across chain" accent="amber" />
+                </div>
+
+                {portfolio.best?.revenue && (
+                  <div className="grid md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Highest revenue', icon: Crown, item: portfolio.best.revenue, value: `\u20b9${portfolio.best.revenue.recovered_revenue.toLocaleString('en-IN')}`, color: 'from-emerald-500 to-teal-600' },
+                      { label: 'Highest rating', icon: Star, item: portfolio.best.rating, value: portfolio.best.rating?.avg_rating || '—', color: 'from-amber-500 to-orange-500' },
+                      { label: 'Best occupancy', icon: TrendingUp, item: portfolio.best.occupancy, value: `${portfolio.best.occupancy.occupancy}%`, color: 'from-blue-500 to-indigo-600' },
+                      { label: 'Best conversion', icon: Target, item: portfolio.best.conversion, value: `${portfolio.best.conversion.conversion}%`, color: 'from-violet-500 to-fuchsia-600' },
+                    ].map((h) => {
+                      const Icon = h.icon;
+                      return (
+                        <Card key={h.label} className={`border-0 overflow-hidden`}>
+                          <div className={`bg-gradient-to-br ${h.color} p-4 text-white`}>
+                            <div className="flex items-center gap-2"><Icon className="h-4 w-4" /><p className="text-xs uppercase tracking-wide opacity-90">{h.label}</p></div>
+                            <p className="text-2xl font-bold mt-1">{h.value}</p>
+                            <p className="text-xs opacity-90 truncate">{h.item?.name}</p>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <Card className="border-0 shadow-sm overflow-hidden">
+                  <CardHeader>
+                    <CardTitle>Branch-by-Branch Comparison</CardTitle>
+                    <CardDescription>Every number that matters, one row per branch.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase">
+                            <th className="text-left px-4 py-3">Branch</th>
+                            <th className="text-right px-3 py-3">Patients</th>
+                            <th className="text-right px-3 py-3">Active %</th>
+                            <th className="text-right px-3 py-3">Campaigns</th>
+                            <th className="text-right px-3 py-3">Reply %</th>
+                            <th className="text-right px-3 py-3">Bookings</th>
+                            <th className="text-right px-3 py-3">Revenue</th>
+                            <th className="text-right px-3 py-3">ROI (x)</th>
+                            <th className="text-right px-3 py-3">Rating</th>
+                            <th className="text-right px-4 py-3">Reviews</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {portfolio.rows.map((r) => {
+                            const isTop = r.id === portfolio.best.revenue?.id;
+                            return (
+                              <tr key={r.id} className={`border-b border-slate-100 hover:bg-slate-50 ${isTop ? 'bg-emerald-50/30' : ''}`}>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    {isTop && <Crown className="h-4 w-4 text-amber-500 shrink-0" />}
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-slate-900 truncate">{r.name}</p>
+                                      <p className="text-xs text-slate-500">{r.doctor_name} · {r.city}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="text-right px-3 py-3 font-medium">{r.total_patients}</td>
+                                <td className="text-right px-3 py-3">{r.occupancy}%</td>
+                                <td className="text-right px-3 py-3">{r.campaigns}</td>
+                                <td className="text-right px-3 py-3">{r.reply_rate}%</td>
+                                <td className="text-right px-3 py-3">{r.booked}</td>
+                                <td className="text-right px-3 py-3 font-bold text-emerald-700">₹{r.recovered_revenue.toLocaleString('en-IN')}</td>
+                                <td className="text-right px-3 py-3"><Badge variant="outline" className={r.marketing_roi_x > 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50'}>{r.marketing_roi_x}x</Badge></td>
+                                <td className="text-right px-3 py-3">{r.avg_rating ? <span className="text-amber-600">★ {r.avg_rating}</span> : '—'}</td>
+                                <td className="text-right px-4 py-3">{r.reviews_total}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader><CardTitle>Revenue Share</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      {portfolio.rows.map((r) => {
+                        const total = portfolio.totals.total_recovered_revenue || 1;
+                        const pct = Math.round((r.recovered_revenue / total) * 100);
+                        return (
+                          <div key={r.id} className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium truncate">{r.name}</span>
+                              <b className="text-emerald-700">₹{r.recovered_revenue.toLocaleString('en-IN')} · {pct}%</b>
+                            </div>
+                            <Progress value={pct} className="h-2" />
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader><CardTitle>Occupancy (active patient share)</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      {portfolio.rows.map((r) => (
+                        <div key={r.id} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium truncate">{r.name}</span>
+                            <b className="text-blue-700">{r.occupancy}%</b>
+                          </div>
+                          <Progress value={r.occupancy} className="h-2" />
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
+          </TabsContent>
           <TabsContent value="coach" className="mt-6 space-y-6">
             <Card className="border-0 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 p-6 text-white">
