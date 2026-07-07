@@ -19,6 +19,7 @@ import {
   Film, Copy, Megaphone, PartyPopper, MapPin,
   Share2, Building2, Dumbbell, School, Stethoscope, UserPlus, HeartHandshake, Beaker,
   BarChart3, Target, ArrowUpRight, ArrowDownRight, MapPinned,
+  Bot, User, MessageCircle,
 } from 'lucide-react';
 
 const SEG_META = {
@@ -127,6 +128,42 @@ export default function App() {
   const loadRanking = async () => {
     const r = await fetch('/api/ranking').then((x) => x.json());
     setRanking(r);
+  };
+
+  // AI Receptionist
+  const [rxSessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const [rxMessages, setRxMessages] = useState([
+    { role: 'assistant', content: `Namaste! Welcome to ${''}Bright Smile Dental. I\u2019m the AI receptionist \u2014 how can I help you today? 😊 (Try: "Book cleaning tomorrow", "What are your timings?", or "How much for a root canal?")` },
+  ]);
+  const [rxInput, setRxInput] = useState('');
+  const [rxSending, setRxSending] = useState(false);
+  const [rxLastIntent, setRxLastIntent] = useState(null);
+  const [rxSlots, setRxSlots] = useState([]);
+
+  const sendRx = async (text) => {
+    const message = text || rxInput.trim();
+    if (!message) return;
+    setRxInput('');
+    setRxMessages((prev) => [...prev, { role: 'user', content: message }]);
+    setRxSending(true);
+    try {
+      const res = await fetch('/api/ai/receptionist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: rxSessionId, patient_name: 'Guest', message }),
+      });
+      const data = await res.json();
+      if (data.reply) {
+        setRxMessages((prev) => [...prev, { role: 'assistant', content: data.reply, intent: data.intent, slots: data.suggested_slots }]);
+        setRxLastIntent(data.intent);
+        setRxSlots(data.suggested_slots || []);
+      } else {
+        setRxMessages((prev) => [...prev, { role: 'assistant', content: `⚠️ ${data.error || 'Something went wrong.'}` }]);
+      }
+    } catch (e) {
+      setRxMessages((prev) => [...prev, { role: 'assistant', content: `⚠️ ${e.message}` }]);
+    }
+    setRxSending(false);
   };
 
   const loadReferrals = async () => {
@@ -349,12 +386,13 @@ export default function App() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-8 max-w-5xl">
+          <TabsList className="grid w-full grid-cols-9 max-w-6xl">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="coach" className="gap-1"><Brain className="h-3.5 w-3.5" /> Coach</TabsTrigger>
             <TabsTrigger value="marketing" className="gap-1"><Megaphone className="h-3.5 w-3.5" /> Marketing</TabsTrigger>
             <TabsTrigger value="ranking" className="gap-1"><Target className="h-3.5 w-3.5" /> Ranking</TabsTrigger>
             <TabsTrigger value="referrals" className="gap-1"><Share2 className="h-3.5 w-3.5" /> Referrals</TabsTrigger>
+            <TabsTrigger value="receptionist" className="gap-1"><Bot className="h-3.5 w-3.5" /> Bot</TabsTrigger>
             <TabsTrigger value="patients">Patients</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="reputation">Reputation</TabsTrigger>
@@ -650,6 +688,116 @@ export default function App() {
           </TabsContent>
 
           {/* Referrals tab */}
+          <TabsContent value="receptionist" className="mt-6 space-y-4">
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 p-6 text-white">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur grid place-items-center">
+                    <Bot className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">AI Receptionist</h2>
+                    <p className="text-emerald-100 text-sm mt-0.5 max-w-xl">24/7 WhatsApp booking + FAQ agent. Try it below as if you were a patient — the bot handles booking, rescheduling, timings and price questions.</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <div className="grid lg:grid-cols-3 gap-4">
+              {/* Chat panel */}
+              <Card className="lg:col-span-2 border-0 shadow-sm overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-emerald-700 to-teal-700 text-white flex-row items-center gap-3 py-4">
+                  <div className="h-10 w-10 rounded-full bg-white/20 grid place-items-center"><Bot className="h-5 w-5" /></div>
+                  <div>
+                    <p className="font-bold leading-none">{dashboard?.clinic?.name}</p>
+                    <p className="text-xs text-emerald-100 mt-0.5 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-green-300" /> online · usually replies instantly</p>
+                  </div>
+                </CardHeader>
+                <div className="h-[500px] flex flex-col bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22><circle cx=%221%22 cy=%221%22 r=%221%22 fill=%22%23e2e8f0%22/></svg>')] bg-emerald-50/40">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                    {rxMessages.map((m, i) => (
+                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${m.role === 'user' ? 'bg-emerald-500 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm'}`}>
+                          <p className="whitespace-pre-wrap leading-snug">{m.content}</p>
+                          {m.slots && m.slots.length > 0 && (
+                            <div className="mt-2 flex gap-1.5 flex-wrap">
+                              {m.slots.map((s, j) => (
+                                <button key={j} onClick={() => sendRx(`Book ${s.day} ${s.time}`)} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-full hover:bg-emerald-100 transition">
+                                  {s.day} · {s.time}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {rxSending && (
+                      <div className="flex justify-start">
+                        <div className="bg-white rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm">
+                          <div className="flex gap-1">
+                            <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 bg-white border-t border-slate-200 flex gap-2">
+                    <Input value={rxInput} onChange={(e) => setRxInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !rxSending) sendRx(); }} placeholder="Type a message… (as if you were a patient)" className="rounded-full" />
+                    <Button onClick={() => sendRx()} disabled={rxSending || !rxInput.trim()} className="rounded-full bg-emerald-600 hover:bg-emerald-700 shrink-0">
+                      {rxSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Side info */}
+              <div className="space-y-4">
+                <Card className="border-0 shadow-sm">
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Quick tests</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    {[
+                      'I want to book a cleaning tomorrow',
+                      'How much does a root canal cost?',
+                      'What are your timings?',
+                      'Do you do braces?',
+                      'I need to reschedule my Thursday appointment',
+                      'My tooth is aching, what should I do?',
+                    ].map((q) => (
+                      <Button key={q} size="sm" variant="outline" className="w-full justify-start text-left h-auto py-2 whitespace-normal" onClick={() => sendRx(q)}>
+                        <MessageCircle className="h-3 w-3 mr-2 shrink-0" /> <span className="text-xs">{q}</span>
+                      </Button>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {rxLastIntent && (
+                  <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-slate-100">
+                    <CardHeader className="pb-3"><CardTitle className="text-sm text-slate-600">Bot Intelligence</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-xs text-slate-500">Last detected intent</p>
+                      <Badge className="mt-1 capitalize bg-emerald-100 text-emerald-700 border-emerald-200" variant="outline">{rxLastIntent.replace('_', ' ')}</Badge>
+                      {rxSlots.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-slate-500">Suggested slots</p>
+                          <div className="flex flex-col gap-1 mt-1">
+                            {rxSlots.map((s, i) => <span key={i} className="text-xs text-slate-700">📅 {s.day} · {s.time}</span>)}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
+                  <b>Guardrail:</b> The bot never gives clinical/medical advice — for anything requiring diagnosis, it politely defers to the doctor.
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Ranking tab */}
           <TabsContent value="ranking" className="mt-6 space-y-6">
             <Card className="border-0 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 p-6 text-white">
